@@ -3,14 +3,16 @@
 A walking **shorkie** (Shih Tzu × Yorkshire Terrier) built with [three.js](https://threejs.org/):
 cream coat, tall pointy ears with fringes, short muzzle and the tongue sticking out.
 
-The app has two dogs, selectable in the panel:
+The app has three dogs, selectable in the panel:
 
+- **Meshy walking** (default) — the real dog's head from the Meshy model on the articulated
+  procedural body, whose coat is tinted with colors sampled from the Meshy texture.
 - **Meshy model (sitting)** — a realistic scan-like model generated with [Meshy](https://www.meshy.ai/)
   from a photo of the real dog. It sits, looks around, twitches its ears, breathes and wags its tail,
   but it cannot walk (it has no skeleton and it was generated in a sitting pose).
 - **Procedural (walking)** — a dog built entirely in code that walks around the path.
 
-Open `?dog=procedural` to start with the walking dog.
+Open `?dog=meshy` or `?dog=procedural` to start with another dog.
 
 ## Meshy model
 
@@ -25,7 +27,15 @@ of the dog sitting on a sofa cushion. Two scripts in `tools/` prepared them:
 Since the mesh has no rig, `src/meshyDog.js` animates it in the vertex shader by regions
 (head, ears, tail, chest), with per-vertex weights computed when the model loads.
 
-To make the realistic dog walk, the model would need to be generated standing on four legs
+### Why the walking version is a hybrid
+
+The Meshy mesh is a single surface in a sitting pose: the body is turned diagonally and the folded
+hind legs are fused with the body, so there are no separate legs to rig. Re-posing it standing would
+badly distort it. Instead, `loadMeshyWalker()` cuts the head (above the neck) out of the mesh and
+mounts it on the procedural dog, replacing its procedural head; the head keeps the procedural
+head animation (bobbing, looking around, barking).
+
+For a fully realistic walking dog, the model would need to be generated standing on four legs
 and exported rigged with a walk cycle (e.g. GLB); it could then be loaded with `GLTFLoader`.
 
 ## How the procedural dog works
@@ -91,7 +101,7 @@ Without manual control the procedural dog walks around the circular path by itse
 index.html      page + three.js import map (CDN)
 style.css       panel styles
 src/main.js     scene, sky, camera, ground, controls, dog switching and main loop
-src/meshyDog.js loads the Meshy model and animates it by regions in the vertex shader
+src/meshyDog.js Meshy model: sitting (animated by regions) and walking hybrid (Meshy head + procedural body)
 src/dog.js      procedural shorkie (body, head, ears, legs, tail) and walk animation
 src/hair.js     hair lock generator and hair material
 models/         Meshy model (OBJ) and its texture

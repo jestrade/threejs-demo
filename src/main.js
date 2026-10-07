@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { createShorkie } from './dog.js';
-import { loadMeshyShorkie } from './meshyDog.js';
+import { loadMeshyShorkie, loadMeshyWalker } from './meshyDog.js';
 
 // ---------- Escena ----------
 const container = document.getElementById('app');
@@ -166,17 +166,18 @@ const quality = THREE.MathUtils.clamp(
   0.1,
   2
 );
-// Dos perros: el procedural (camina) y el modelo de Meshy (sentado, más realista)
+// Tres perros: Meshy caminando (cabeza Meshy + cuerpo procedural), Meshy sentado
+// (el modelo completo) y el procedural
 const dogs = {};
 let dog = null;
 let dogRequest = 0;
 
 async function getDog(kind) {
   if (!dogs[kind]) {
-    dogs[kind] =
-      kind === 'meshy'
-        ? loadMeshyShorkie({ objUrl: 'models/shorkie-meshy.obj', textureUrl: 'models/shorkie-meshy.webp' })
-        : Promise.resolve(createShorkie({ quality }));
+    const meshy = { objUrl: 'models/shorkie-meshy.obj', textureUrl: 'models/shorkie-meshy.webp' };
+    if (kind === 'meshy') dogs[kind] = loadMeshyShorkie(meshy);
+    else if (kind === 'meshy-walk') dogs[kind] = loadMeshyWalker({ ...meshy, createBody: (coat) => createShorkie({ quality, coat }) });
+    else dogs[kind] = Promise.resolve(createShorkie({ quality }));
   }
   return dogs[kind];
 }
@@ -226,7 +227,7 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('keyup', (e) => keys.delete(e.code));
 ui.bark.addEventListener('click', bark);
 
-ui.model.value = params.get('dog') === 'procedural' ? 'procedural' : 'meshy';
+ui.model.value = ['meshy', 'procedural'].includes(params.get('dog')) ? params.get('dog') : 'meshy-walk';
 ui.model.addEventListener('change', () => setDog(ui.model.value));
 setDog(ui.model.value);
 

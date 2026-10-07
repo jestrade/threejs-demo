@@ -239,7 +239,23 @@ function makeLeg(x, z, front, ctx) {
   return { hip, knee, ankle, restHip, restKnee, restPaw, front };
 }
 
-export function createShorkie({ seed = 7, quality = 1 } = {}) {
+/**
+ * Crea el shorkie procedural.
+ * coat: colores opcionales del pelaje ({ fur, furWarm, furTan }) para que
+ * combine con otra cabeza (p. ej. la de Meshy).
+ */
+export function createShorkie({ seed = 7, quality = 1, coat = null } = {}) {
+  if (!coat) return buildShorkie(seed, quality);
+  const saved = Object.fromEntries(Object.keys(coat).map((k) => [k, PALETTE[k].clone()]));
+  Object.entries(coat).forEach(([k, c]) => PALETTE[k].copy(c));
+  try {
+    return buildShorkie(seed, quality);
+  } finally {
+    Object.entries(saved).forEach(([k, c]) => PALETTE[k].copy(c));
+  }
+}
+
+function buildShorkie(seed, quality) {
   const ctx = { rand: mulberry32(seed), quality, strands: 0 };
   const group = new THREE.Group();
 

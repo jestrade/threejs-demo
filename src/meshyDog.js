@@ -171,3 +171,90 @@ rigPos += vec3(dc.x, 0.3 * dc.y, dc.z) * chest * uBreath;`
 
   return { group, head, update, bark, canWalk: false };
 }
+
+// ---------- Versión que camina ----------
+// La malla de Meshy es una sola superficie sentada (patas traseras fundidas con
+// el cuerpo), así que no se puede re-posar de pie sin deformarla. Para que
+// camine se usa un híbrido: la cabeza real de Meshy (cara, ojos, orejas y
+// textura) sobre el cuerpo procedural articulado.
+const HEAD_CUT_Y = 0.115; // por encima de esto, en coordenadas de Meshy, es cabeza
+const HEAD_SCALE = 1.45; // la cabeza procedural ya tiene escala 1.15
+const HEAD_OFFSET = new THREE.Vector3(0, -0.08, -0.05);
+
+// Colores del pelaje sacados de la textura de la cabeza: claros, medios y
+// oscuros (sin contar ojos, nariz ni boca), para teñir el cuerpo procedural.
+function coatFromTexture(image, uvs) {
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const g = canvas.getContext('2d', { willReadFrequently: true });
+  g.drawImage(image, 0, 0, size, size);
+  const data = g.getImageData(0, 0, size, size).data;
+  const samples = [];
+  const c = new THREE.Color();
+  for (let i = 0; i < uvs.length; i += 6) {
+    const u = (uvs[i] + uvs[i + 2] + uvs[i + 4]) / 3;
+    const v = (uvs[i + 1] + uvs[i + 3] + uvs[i + 5]) / 3;
+    const px = Math.min(size - 1, Math.max(0, Math.floor(u * size)));
+    const py = Math.min(size - 1, Math.max(0, Math.floor((1 - v) * size)));
+    const o = (py * size + px) * 4;
+    c.setRGB(data[o] / 255, data[o + 1] / 255, data[o + 2] / 255, THREE.SRGBColorSpace);
+    const hsl = c.getHSL({}, THREE.SRGBColorSpace);
+    if (hsl.l > 0.45 && hsl.s < 0.5) samples.push({ l: hsl.l, color: c.clone() });
+  }
+  // La textura trae sombras horneadas (es más oscura de lo que se ve el pelo):
+  // se toma el tono medio y se usan luminosidades de pelaje claro.
+  samples.sort((a, b) => a.l - b.l);
+  const hue = samples[Math.floor(samples.length / 2)].color.getHSL({}, THREE.SRGBColorSpace).h;
+  const hsl = (s, l) => new THREE.Color().setHSL(hue, s, l, THREE.SRGBColorSpace);
+  return { fur: hsl(0.5, 0.8), furWarm: hsl(0.48, 0.7), furTan: hsl(0.42, 0.57) };
+}
+
+export async function loadMeshyWalker({ objUrl, textureUrl, createBody }) {
+  const [obj, map] = await Promise.all([
+    new OBJLoader().loadAsync(objUrl),
+    new THREE.TextureLoader().loadAsync(textureUrl),
+  ]);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.anisotropy = 8;
+
+  // Recorta los triángulos de la cabeza (la geometría del OBJ no es indexada)
+  const src = obj.children.find((c) => c.isMesh).geometry;
+  const attrs = ['position', 'normal', 'uv'];
+  const out = Object.fromEntries(attrs.map((a) => [a, []]));
+  const pos = src.attributes.position;
+  for (let t = 0; t < pos.count; t += 3) {
+    let inside = true;
+    for (let k = 0; k < 3 && inside; k++) {
+      inside = pos.getY(t + k) > HEAD_CUT_Y && pos.getZ(t + k) > -0.06;
+    }
+    if (!inside) continue;
+    for (const a of attrs) {
+      const attr = src.attributes[a];
+      for (let k = 0; k < 3; k++) {
+        for (let c = 0; c < attr.itemSize; c++) out[a].push(attr.array[(t + k) * attr.itemSize + c]);
+      }
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(out.position, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(out.normal, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(out.uv, 2));
+  // centrar en el cuello para que gire como la cabeza procedural
+  geometry.translate(-HEAD_PIVOT.x, -HEAD_PIVOT.y, -HEAD_PIVOT.z);
+
+  const headMesh = new THREE.Mesh(
+    geometry,
+    // un poco más clara para igualar el pelaje del cuerpo
+    new THREE.MeshStandardMaterial({ map, color: new THREE.Color(1.25, 1.22, 1.15), roughness: 0.85, envMapIntensity: 0.45 })
+  );
+  headMesh.castShadow = true;
+  headMesh.receiveShadow = true;
+  headMesh.scale.setScalar(HEAD_SCALE);
+  headMesh.position.copy(HEAD_OFFSET);
+
+  const dog = createBody(coatFromTexture(map.image, out.uv));
+  dog.head.clear(); // quita la cabeza procedural (las animaciones de cabeza siguen aplicando)
+  dog.head.add(headMesh);
+  return { ...dog, canWalk: true };
+}
