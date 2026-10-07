@@ -3,9 +3,32 @@
 A walking **shorkie** (Shih Tzu × Yorkshire Terrier) built with [three.js](https://threejs.org/):
 cream coat, tall pointy ears with fringes, short muzzle and the tongue sticking out.
 
-The whole dog is procedural — there are no 3D model files.
+The app has two dogs, selectable in the panel:
 
-## How it works
+- **Meshy model (sitting)** — a realistic scan-like model generated with [Meshy](https://www.meshy.ai/)
+  from a photo of the real dog. It sits, looks around, twitches its ears, breathes and wags its tail,
+  but it cannot walk (it has no skeleton and it was generated in a sitting pose).
+- **Procedural (walking)** — a dog built entirely in code that walks around the path.
+
+Open `?dog=procedural` to start with the walking dog.
+
+## Meshy model
+
+`models/shorkie-meshy.obj` + `models/shorkie-meshy.webp` come from a Meshy image-to-3D export
+of the dog sitting on a sofa cushion. Two scripts in `tools/` prepared them:
+
+- `tools/crop_meshy.py` fits the cushion's top surface, keeps only the faces above it (the dog),
+  keeps the largest connected piece and writes smooth normals.
+- `tools/recolor_texture.py` shifts the pinkish/grey texture towards the dog's real cream color
+  and the purple tongue towards pink.
+
+Since the mesh has no rig, `src/meshyDog.js` animates it in the vertex shader by regions
+(head, ears, tail, chest), with per-vertex weights computed when the model loads.
+
+To make the realistic dog walk, the model would need to be generated standing on four legs
+and exported rigged with a walk cycle (e.g. GLB); it could then be loaded with `GLTFLoader`.
+
+## How the procedural dog works
 
 ### Sculpted hair locks
 
@@ -55,20 +78,24 @@ In **Settings → Pages**, choose *Deploy from a branch* → `main` / `(root)`.
 | Action | Control |
 | --- | --- |
 | Orbit / zoom camera | drag / mouse wheel |
-| Walk manually | `W A S D` or arrow keys |
+| Choose dog | panel selector |
+| Walk manually (procedural dog) | `W A S D` or arrow keys |
 | Bark | `Space` or the 🔊 button |
 | Speed, pause, follow camera | panel in the corner |
 
-Without manual control the dog walks around the circular path by itself.
+Without manual control the procedural dog walks around the circular path by itself.
 
 ## Project structure
 
 ```
 index.html      page + three.js import map (CDN)
 style.css       panel styles
-src/main.js     scene, sky, camera, ground, controls and main loop
-src/dog.js      shorkie model (body, head, ears, legs, tail) and walk animation
+src/main.js     scene, sky, camera, ground, controls, dog switching and main loop
+src/meshyDog.js loads the Meshy model and animates it by regions in the vertex shader
+src/dog.js      procedural shorkie (body, head, ears, legs, tail) and walk animation
 src/hair.js     hair lock generator and hair material
+models/         Meshy model (OBJ) and its texture
+tools/          scripts used to prepare the Meshy model
 ```
 
 To tweak the look, change `PALETTE` in `src/dog.js` and the `addHair()` options (length, droop, flow, clump, …).

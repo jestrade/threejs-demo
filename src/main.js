@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { createShorkie } from './dog.js';
+import { loadMeshyShorkie } from './meshyDog.js';
 
 // ---------- Escena ----------
 const container = document.getElementById('app');
@@ -165,11 +166,36 @@ const quality = THREE.MathUtils.clamp(
   0.1,
   2
 );
-const dog = createShorkie({ quality });
-scene.add(dog.group);
+// Dos perros: el procedural (camina) y el modelo de Meshy (sentado, más realista)
+const dogs = {};
+let dog = null;
+let dogRequest = 0;
+
+async function getDog(kind) {
+  if (!dogs[kind]) {
+    dogs[kind] =
+      kind === 'meshy'
+        ? loadMeshyShorkie({ objUrl: 'models/shorkie-meshy.obj', textureUrl: 'models/shorkie-meshy.webp' })
+        : Promise.resolve(createShorkie({ quality }));
+  }
+  return dogs[kind];
+}
+
+async function setDog(kind) {
+  const request = ++dogRequest;
+  document.body.classList.add('loading');
+  const next = await getDog(kind);
+  if (request !== dogRequest) return; // el usuario cambió de opinión mientras cargaba
+  if (dog) scene.remove(dog.group);
+  dog = next;
+  scene.add(dog.group);
+  document.body.classList.remove('loading');
+  document.body.classList.toggle('static-dog', !dog.canWalk);
+}
 
 // ---------- UI ----------
 const ui = {
+  model: document.getElementById('model'),
   speed: document.getElementById('speed'),
   manual: document.getElementById('manual'),
   follow: document.getElementById('follow'),
@@ -200,9 +226,14 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('keyup', (e) => keys.delete(e.code));
 ui.bark.addEventListener('click', bark);
 
+ui.model.value = params.get('dog') === 'procedural' ? 'procedural' : 'meshy';
+ui.model.addEventListener('change', () => setDog(ui.model.value));
+setDog(ui.model.value);
+
 let bubbleTimer = 0;
 let audioCtx = null;
 function bark() {
+  if (!dog) return;
   dog.bark();
   bubbleTimer = 0.9;
   ui.bubble.classList.add('show');
@@ -258,9 +289,14 @@ function tick() {
     if (!fwd && !back && (left || right)) targetSpeed = 0.15;
   }
 
+  // el modelo de Meshy está sentado: se queda en su lugar
+  const canWalk = dog?.canWalk ?? false;
+  if (!canWalk) targetSpeed = 0;
   state.speed += (targetSpeed - state.speed) * Math.min(1, dt * 4);
 
-  if (ui.manual.checked) {
+  if (!canWalk) {
+    // sin moverse ni girar
+  } else if (ui.manual.checked) {
     state.pos.x += Math.sin(state.heading) * state.speed * dt;
     state.pos.z += Math.cos(state.heading) * state.speed * dt;
     state.pos.clampLength(0, 16);
@@ -279,9 +315,11 @@ function tick() {
     state.pos.z += Math.cos(state.heading) * state.speed * dt;
   }
 
-  dog.group.position.copy(state.pos);
-  dog.group.rotation.y = state.heading;
-  dog.update(dt, state.speed, time);
+  if (dog) {
+    dog.group.position.copy(state.pos);
+    dog.group.rotation.y = state.heading;
+    dog.update(dt, state.speed, time);
+  }
 
   // La sombra sigue al perro
   sun.position.copy(SUN_DIR).multiplyScalar(9).add(state.pos);
@@ -296,7 +334,7 @@ function tick() {
   controls.update();
 
   // Globo "¡Guau!" sobre la cabeza
-  if (bubbleTimer > 0) {
+  if (bubbleTimer > 0 && dog) {
     bubbleTimer -= dt;
     dog.head.getWorldPosition(headWorld);
     headWorld.y += 0.45;
@@ -317,6 +355,6 @@ window.addEventListener('resize', () => {
 });
 
 // Acceso para depurar desde la consola
-window.shorkie = { scene, camera, controls, dog, state };
+window.shorkie = { scene, camera, controls, state, get dog() { return dog; } };
 
 tick();

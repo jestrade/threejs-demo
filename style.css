@@ -112,3 +112,30 @@ button:hover {
     bottom: 16px;
   }
 }
+
+select {
+  flex: 1;
+  padding: 4px 6px;
+  border: 1px solid #dccab3;
+  border-radius: 8px;
+  background: #fffaf3;
+  font: inherit;
+}
+
+.note,
+.loading-msg {
+  display: none;
+  margin: 0 0 8px;
+  color: #7a6a5c;
+  font-size: 12px;
+}
+
+body.static-dog .note,
+body.loading .loading-msg {
+  display: block;
+}
+
+body.static-dog .walk-only {
+  opacity: 0.4;
+  pointer-events: none;
+}

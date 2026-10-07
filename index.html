@@ -24,11 +24,21 @@
       <p class="sub">Shih Tzu × Yorkie con orejas puntiagudas</p>
 
       <label class="row">
+        <span>Perro</span>
+        <select id="model">
+          <option value="meshy">Modelo Meshy (sentado)</option>
+          <option value="procedural">Procedural (camina)</option>
+        </select>
+      </label>
+      <p class="note">El modelo de Meshy está sentado: mira, respira y mueve la cola, pero no camina.</p>
+      <p class="loading-msg">Cargando modelo…</p>
+
+      <label class="row walk-only">
         <span>Velocidad</span>
         <input id="speed" type="range" min="0" max="1.6" step="0.05" value="0.7" />
       </label>
 
-      <label class="row check">
+      <label class="row check walk-only">
         <input id="manual" type="checkbox" />
         <span>Control manual (WASD / flechas)</span>
       </label>
@@ -39,7 +49,7 @@
       </label>
 
       <div class="buttons">
-        <button id="pause">⏸ Pausar</button>
+        <button id="pause" class="walk-only">⏸ Pausar</button>
         <button id="bark">🔊 Ladrar (espacio)</button>
       </div>
 

@@ -574,5 +574,5 @@ export function createShorkie({ seed = 7, quality = 1 } = {}) {
     barkTime = 0.35;
   }
 
-  return { group, head, update, bark, strands: ctx.strands };
+  return { group, head, update, bark, strands: ctx.strands, canWalk: true };
 }
