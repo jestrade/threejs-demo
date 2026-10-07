@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { addHair as growHair, hairUniforms } from './hair.js';
 
 // Colores tomados de la foto de referencia: pelaje crema/beige claro,
 // un poco más tostado en la cara y las orejas, interior de oreja rosado.
@@ -7,9 +8,8 @@ const PALETTE = {
   furWarm: new THREE.Color('#dcc2a0'),
   furTan: new THREE.Color('#c39f7a'),
   skin: new THREE.Color('#bba184'),
-  earInner: new THREE.Color('#d8a49c'),
+  earInner: new THREE.Color('#c98f86'),
   nose: new THREE.Color('#141010'),
-  eye: new THREE.Color('#1d110b'),
   tongue: new THREE.Color('#e46f86'),
   mouth: new THREE.Color('#3a2020'),
 };
@@ -24,41 +24,56 @@ function mulberry32(seed) {
   };
 }
 
-// ---------- Material del pelo ----------
-// Un solo material para todos los mechones. El vertex shader mueve las puntas
-// (brisa + inercia al caminar) usando aHair.x = posición a lo largo del mechón.
-const hairUniforms = {
-  uTime: { value: 0 },
-  uMotion: { value: new THREE.Vector3() },
-};
-
-const hairMaterial = new THREE.MeshPhysicalMaterial({
-  vertexColors: true,
-  roughness: 0.62,
-  sheen: 1,
-  sheenRoughness: 0.45,
-  sheenColor: new THREE.Color('#fff1dc'),
-  side: THREE.DoubleSide,
-});
-hairMaterial.onBeforeCompile = (shader) => {
-  Object.assign(shader.uniforms, hairUniforms);
-  shader.vertexShader = shader.vertexShader
-    .replace(
-      '#include <common>',
-      `#include <common>
-attribute vec2 aHair;
-uniform float uTime;
-uniform vec3 uMotion;`
-    )
-    .replace(
-      '#include <begin_vertex>',
-      `#include <begin_vertex>
-float hw = aHair.x * aHair.x;
-transformed += hw * (uMotion + 0.005 * vec3(sin(uTime * 2.7 + aHair.y), 0.0, cos(uTime * 2.1 + aHair.y * 1.3)));`
-    );
-};
-
 const skinMaterial = new THREE.MeshStandardMaterial({ color: PALETTE.skin, roughness: 1 });
+
+function canvasTexture(w, h, draw) {
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  draw(canvas.getContext('2d'), w, h);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// Iris para una esfera con el polo mirando al frente: en el mapeo UV de la
+// esfera, cada fila de la textura es un anillo alrededor de la pupila.
+function irisTexture(rand) {
+  return canvasTexture(256, 128, (g, w, h) => {
+    for (let y = 0; y < h; y++) {
+      const v = y / h; // 0 = centro de la pupila
+      for (let x = 0; x < w; x += 2) {
+        let col;
+        if (v < 0.075) col = [6, 4, 3];
+        else if (v < 0.2) {
+          const k = (v - 0.075) / 0.125;
+          const streak = 0.75 + 0.5 * Math.sin(x * 0.45 + Math.sin(x * 0.13) * 3) * rand();
+          col = [70 + 40 * k, 38 + 22 * k, 18 + 8 * k].map((c) => c * streak);
+        } else if (v < 0.23) col = [25, 14, 8];
+        else col = [38, 24, 18];
+        g.fillStyle = `rgb(${col.map((c) => Math.round(Math.min(255, c))).join(',')})`;
+        g.fillRect(x, y, 2, 1);
+      }
+    }
+  });
+}
+
+// Textura rugosa de trufa para el relieve de la nariz
+function noseBump(rand) {
+  const tex = canvasTexture(128, 128, (g, w, h) => {
+    g.fillStyle = '#808080';
+    g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 900; i++) {
+      const l = 90 + rand() * 120;
+      g.fillStyle = `rgb(${l},${l},${l})`;
+      g.beginPath();
+      g.arc(rand() * w, rand() * h, 1.5 + rand() * 2.5, 0, Math.PI * 2);
+      g.fill();
+    }
+  });
+  tex.colorSpace = THREE.NoColorSpace;
+  return tex;
+}
 
 function mesh(geometry, material) {
   const m = new THREE.Mesh(geometry, material);
@@ -73,178 +88,9 @@ function ellipsoid(rx, ry, rz, material, segments = 24) {
   return m;
 }
 
-/**
- * Cubre un elipsoide con mechones de pelo curvos (un solo BufferGeometry).
- * Cada mechón es un tubo de 3 lados, afinado hacia la punta, que nace en la
- * superficie y se dobla por la gravedad sin atravesar el cuerpo.
- *
- * - droop:  fuerza de gravedad sobre el mechón
- * - flow:   dirección en que se "peina" (espacio local del padre)
- * - lift:   cuánto sale el pelo perpendicular a la piel al nacer
- * - part:   raya en el lomo: empuja el pelo de arriba hacia los lados
- * - spread: abre el pelo hacia afuera en horizontal (bigotes)
- * - filter(n) / lengthFn(n): dónde poner pelo y qué tan largo, según la normal
- */
+// Todos los mechones usan el color crema por defecto
 function addHair(parent, ctx, opts) {
-  const {
-    center = [0, 0, 0],
-    radii = [0.1, 0.1, 0.1],
-    count: baseCount = 300,
-    length = 0.1,
-    lengthJitter = 0.45,
-    droop = 1,
-    flow = [0, 0, 0],
-    lift = 0.5,
-    part = 0,
-    spread = 0,
-    width = 0.0055,
-    colors = [PALETTE.fur],
-    filter = null,
-    lengthFn = null,
-    messiness = 0.15,
-    segments = 4,
-    rootShade = 0.5,
-  } = opts;
-  const { rand, quality } = ctx;
-
-  const count = Math.max(8, Math.round(baseCount * quality));
-  const strandWidth = width / Math.sqrt(quality); // menos mechones → más gruesos
-  const RING = 3;
-  const vertsPer = (segments + 1) * RING;
-
-  const pos = new Float32Array(count * vertsPer * 3);
-  const nor = new Float32Array(count * vertsPer * 3);
-  const col = new Float32Array(count * vertsPer * 3);
-  const hair = new Float32Array(count * vertsPer * 2);
-  const idx = new Uint32Array(count * segments * RING * 6);
-
-  const C = new THREE.Vector3(...center);
-  const R = new THREE.Vector3(...radii);
-  const flowV = new THREE.Vector3(...flow);
-  const n = new THREE.Vector3();
-  const p = new THREE.Vector3();
-  const g = new THREE.Vector3();
-  const gt = new THREE.Vector3();
-  const dir = new THREE.Vector3();
-  const s1 = new THREE.Vector3();
-  const s2 = new THREE.Vector3();
-  const rad = new THREE.Vector3();
-  const tmp = new THREE.Vector3();
-  const noise = new THREE.Vector3();
-  const helperY = new THREE.Vector3(0, 1, 0);
-  const helperX = new THREE.Vector3(1, 0, 0);
-  const base = new THREE.Color();
-  const c = new THREE.Color();
-  const white = new THREE.Color(1, 1, 1);
-
-  const randomNoise = (scale) => noise.set(rand() - 0.5, rand() - 0.5, rand() - 0.5).multiplyScalar(scale);
-
-  let s = 0;
-  let vi = 0;
-  let ii = 0;
-  let guard = 0;
-  while (s < count && guard++ < count * 40) {
-    const u = rand() * 2 - 1;
-    const th = rand() * Math.PI * 2;
-    const r = Math.sqrt(1 - u * u);
-    const ux = r * Math.cos(th);
-    const uy = u;
-    const uz = r * Math.sin(th);
-    n.set(ux / R.x, uy / R.y, uz / R.z).normalize();
-    if (filter && !filter(n)) continue;
-
-    p.set(C.x + ux * R.x * 0.97, C.y + uy * R.y * 0.97, C.z + uz * R.z * 0.97);
-
-    let len = length * (1 - lengthJitter / 2 + rand() * lengthJitter);
-    if (lengthFn) len *= lengthFn(n);
-
-    // Fuerza total sobre el mechón
-    g.set(0, -droop, 0).add(flowV);
-    if (part) g.x += part * Math.sign(n.x || 1) * Math.max(0, n.y);
-    if (spread) g.addScaledVector(tmp.set(n.x, 0, n.z), spread);
-
-    // Dirección inicial: sale de la piel y se acuesta según la fuerza tangencial
-    gt.copy(g).addScaledVector(n, -g.dot(n));
-    dir.copy(n).multiplyScalar(lift).add(gt).add(randomNoise(messiness)).normalize();
-
-    const w = strandWidth * (0.7 + rand() * 0.6);
-    const phase = rand() * Math.PI * 2;
-    const twist = rand() * Math.PI;
-    base.copy(colors[Math.floor(rand() * colors.length)]).offsetHSL(0, (rand() - 0.5) * 0.04, (rand() - 0.5) * 0.07);
-
-    const bend = 1.3 / segments;
-    const step = len / segments;
-    const first = vi;
-
-    for (let i = 0; i <= segments; i++) {
-      const t = i / segments;
-
-      s1.crossVectors(dir, Math.abs(dir.y) < 0.9 ? helperY : helperX).normalize();
-      s2.crossVectors(dir, s1);
-      const ringR = w * (1 - 0.85 * t);
-
-      // raíz oscura (oclusión) → punta clara
-      c.copy(base).multiplyScalar(rootShade + (1 - rootShade) * Math.pow(t, 0.7)).lerp(white, 0.08 * t);
-
-      for (let k = 0; k < RING; k++) {
-        const a = twist + (k * Math.PI * 2) / RING;
-        rad.copy(s1).multiplyScalar(Math.cos(a)).addScaledVector(s2, Math.sin(a));
-        pos[vi * 3] = p.x + rad.x * ringR;
-        pos[vi * 3 + 1] = p.y + rad.y * ringR;
-        pos[vi * 3 + 2] = p.z + rad.z * ringR;
-        // normal mezclada con la de la piel: sombreado suave y coherente
-        tmp.copy(rad).multiplyScalar(0.45).add(n).normalize();
-        nor[vi * 3] = tmp.x;
-        nor[vi * 3 + 1] = tmp.y;
-        nor[vi * 3 + 2] = tmp.z;
-        col[vi * 3] = c.r;
-        col[vi * 3 + 1] = c.g;
-        col[vi * 3 + 2] = c.b;
-        hair[vi * 2] = t;
-        hair[vi * 2 + 1] = phase;
-        vi++;
-      }
-
-      if (i < segments) {
-        dir.addScaledVector(g, bend).add(randomNoise(messiness * 0.4)).normalize();
-        p.addScaledVector(dir, step);
-        // que no se meta dentro del cuerpo
-        tmp.copy(p).sub(C).divide(R);
-        const q = tmp.lengthSq();
-        if (q < 1.02) p.sub(C).multiplyScalar(Math.sqrt(1.02 / q)).add(C);
-      }
-    }
-
-    for (let i = 0; i < segments; i++) {
-      for (let k = 0; k < RING; k++) {
-        const a0 = first + i * RING + k;
-        const b0 = first + i * RING + ((k + 1) % RING);
-        idx[ii++] = a0;
-        idx[ii++] = b0;
-        idx[ii++] = b0 + RING;
-        idx[ii++] = a0;
-        idx[ii++] = b0 + RING;
-        idx[ii++] = a0 + RING;
-      }
-    }
-    s++;
-  }
-
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos.subarray(0, vi * 3), 3));
-  geo.setAttribute('normal', new THREE.BufferAttribute(nor.subarray(0, vi * 3), 3));
-  geo.setAttribute('color', new THREE.BufferAttribute(col.subarray(0, vi * 3), 3));
-  geo.setAttribute('aHair', new THREE.BufferAttribute(hair.subarray(0, vi * 2), 2));
-  geo.setIndex(new THREE.BufferAttribute(idx.subarray(0, ii), 1));
-  geo.computeBoundingSphere();
-
-  const m = new THREE.Mesh(geo, hairMaterial);
-  m.castShadow = true;
-  // sin auto-sombra: el pelaje claro se veía grisáceo
-  m.receiveShadow = false;
-  parent.add(m);
-  ctx.strands += s;
-  return m;
+  return growHair(parent, ctx, { colors: [PALETTE.fur], ...opts });
 }
 
 function makeEar(side, ctx) {
@@ -267,15 +113,32 @@ function makeEar(side, ctx) {
   inner.position.set(0, 0.012, 0.016);
   ear.add(inner);
 
+  // Mechones que salen del interior de la oreja
+  addHair(ear, ctx, {
+    center: [0, 0.05, 0.012],
+    radii: [0.035, 0.06, 0.012],
+    count: 300,
+    lockSize: 6,
+    length: 0.06,
+    droop: -0.6,
+    flow: [0.5 * side, 0, 0.3],
+    lift: 0.5,
+    colors: [PALETTE.fur, PALETTE.furWarm],
+    filter: (h) => h.z > 0.3,
+  });
+
   // Pelo corto que cubre el dorso de la oreja, peinado hacia la punta
   addHair(ear, ctx, {
     center: [0, 0.075, -0.004],
     radii: [0.062, 0.09, 0.022],
-    count: 700,
+    count: 1400,
+    clump: 0.2,
+    lockSize: 6,
+    tipColor: PALETTE.furTan,
+    tipMix: 0.5,
     length: 0.03,
     droop: -0.9,
     lift: 0.15,
-    width: 0.0035,
     colors: [PALETTE.furWarm, PALETTE.furTan],
     filter: (h) => h.z < 0.1,
     rootShade: 0.7,
@@ -284,12 +147,13 @@ function makeEar(side, ctx) {
   addHair(ear, ctx, {
     center: [0, 0.06, 0],
     radii: [0.062, 0.08, 0.02],
-    count: 800,
+    count: 1300,
+    clump: 0.6,
+    lockSize: 8,
     length: 0.065,
     droop: 0.35,
     flow: [0.9 * side, 0.25, -0.2],
     lift: 0.3,
-    width: 0.0035,
     colors: [PALETTE.fur, PALETTE.furWarm, PALETTE.furTan],
     filter: (h) => Math.abs(h.x) > 0.7 && h.x * side > 0,
   });
@@ -297,10 +161,11 @@ function makeEar(side, ctx) {
   addHair(ear, ctx, {
     center: [0, 0.185, 0],
     radii: [0.014, 0.03, 0.01],
-    count: 80,
+    count: 160,
+    clump: 0.5,
+    lockSize: 6,
     length: 0.035,
     droop: -1.2,
-    width: 0.003,
     colors: [PALETTE.furTan, PALETTE.furWarm],
   });
   return ear;
@@ -322,7 +187,7 @@ function makeLeg(x, z, front, ctx) {
   addHair(hip, ctx, {
     center: [0, -0.09, 0],
     radii: [0.066, 0.14, 0.066],
-    count: 1300,
+    count: 2400,
     length: 0.13,
     droop: 2.2,
     lift: 0.3,
@@ -339,7 +204,7 @@ function makeLeg(x, z, front, ctx) {
   addHair(knee, ctx, {
     center: [0, -0.08, 0],
     radii: [0.05, 0.1, 0.05],
-    count: 700,
+    count: 1300,
     length: 0.08,
     droop: 2.2,
     lift: 0.3,
@@ -356,7 +221,9 @@ function makeLeg(x, z, front, ctx) {
   addHair(ankle, ctx, {
     center: [0, -0.012, 0.02],
     radii: [0.052, 0.034, 0.07],
-    count: 350,
+    count: 700,
+    clump: 0.3,
+    lockSize: 6,
     length: 0.035,
     droop: 1,
     flow: [0, 0, 0.6],
@@ -394,7 +261,8 @@ export function createShorkie({ seed = 7, quality = 1 } = {}) {
   const coat = {
     length: 0.17,
     droop: 1.6,
-    lift: 0.25,
+    lift: 0.15,
+    messiness: 0.08,
     part: 1.2,
     colors: [PALETTE.fur, PALETTE.fur, PALETTE.fur, PALETTE.furWarm],
     // Más largo hacia abajo: la "falda" típica del Yorkie/Shih Tzu
@@ -404,7 +272,8 @@ export function createShorkie({ seed = 7, quality = 1 } = {}) {
     ...coat,
     center: [0, 0.015, 0],
     radii: [0.2, 0.21, 0.39],
-    count: 12500,
+    count: 22000,
+    lockSize: 22,
     flow: [0, 0, -0.45],
   });
 
@@ -426,7 +295,8 @@ export function createShorkie({ seed = 7, quality = 1 } = {}) {
   addHair(root, ctx, {
     center: [0, 0.13, 0.28],
     radii: [0.13, 0.15, 0.13],
-    count: 2600,
+    count: 5000,
+    lockSize: 18,
     length: 0.14,
     droop: 1.4,
     lift: 0.35,
@@ -448,7 +318,7 @@ export function createShorkie({ seed = 7, quality = 1 } = {}) {
   // Ojos grandes, redondos y mirando al frente
   const eyeDirs = [1, -1].map((side) => new THREE.Vector3(0.4 * side, 0.2, 0.9).normalize());
   const eyeMat = new THREE.MeshPhysicalMaterial({
-    color: PALETTE.eye,
+    map: irisTexture(ctx.rand),
     roughness: 0.25,
     clearcoat: 1,
     clearcoatRoughness: 0.03,
@@ -457,8 +327,10 @@ export function createShorkie({ seed = 7, quality = 1 } = {}) {
   const eyes = [];
   for (const d of eyeDirs) {
     const at = new THREE.Vector3(d.x * SKULL_R.x, d.y * SKULL_R.y, d.z * SKULL_R.z).multiplyScalar(0.9).add(SKULL_C);
-    const eye = mesh(new THREE.SphereGeometry(0.025, 24, 16), eyeMat);
+    const eye = mesh(new THREE.SphereGeometry(0.025, 32, 24).rotateX(Math.PI / 2), eyeMat);
     eye.position.copy(at);
+    // la pupila mira casi al frente
+    eye.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(d.x * 0.35, d.y * 0.2, 1).normalize());
     head.add(eye);
     eyes.push(eye);
 
@@ -472,7 +344,11 @@ export function createShorkie({ seed = 7, quality = 1 } = {}) {
   addHair(head, ctx, {
     center: SKULL_C.toArray(),
     radii: SKULL_R.toArray(),
-    count: 4200,
+    count: 7000,
+    tipColor: PALETTE.furTan,
+    tipMix: 0.35,
+    lockSize: 10,
+    wave: 0.08,
     length: 0.06,
     droop: 0.9,
     lift: 0.45,
@@ -485,12 +361,13 @@ export function createShorkie({ seed = 7, quality = 1 } = {}) {
   addHair(head, ctx, {
     center: SKULL_C.toArray(),
     radii: SKULL_R.toArray(),
-    count: 2200,
+    count: 4000,
+    clump: 0.25,
+    lockSize: 6,
     length: 0.032,
     droop: 0.8,
     lift: 0.5,
     flow: [0, 0, 0.2],
-    width: 0.0042,
     colors: [PALETTE.furWarm, PALETTE.fur, PALETTE.furTan],
     filter: (h) => h.z > 0.4 && h.y < 0.6 && eyeDirs.every((e) => h.distanceTo(e) > 0.2),
   });
@@ -499,12 +376,12 @@ export function createShorkie({ seed = 7, quality = 1 } = {}) {
     addHair(head, ctx, {
       center: [0.055 * side, 0.135, 0.12],
       radii: [0.03, 0.012, 0.02],
-      count: 120,
+      count: 220,
+      lockSize: 8,
       length: 0.05,
       droop: -0.4,
       flow: [0.5 * side, 0, 0.6],
       lift: 0.6,
-      width: 0.0035,
       colors: [PALETTE.furTan, PALETTE.furWarm],
     });
   }
@@ -519,32 +396,36 @@ export function createShorkie({ seed = 7, quality = 1 } = {}) {
   addHair(head, ctx, {
     center: MUZ_C,
     radii: MUZ_R,
-    count: 2600,
+    count: 5000,
+    clump: 0.7,
+    lockSize: 12,
     length: 0.075,
     droop: 1.5,
     lift: 0.6,
     spread: 0.8,
     flow: [0, 0, 0.2],
-    width: 0.0045,
     colors: [PALETTE.fur, PALETTE.fur, PALETTE.furWarm],
-    filter: (h) => !(h.z > 0.8 && h.y > -0.15) && h.y < 0.75,
+    filter: (h) => !(h.z > 0.88 && h.y > 0) && h.y < 0.75,
     lengthFn: (h) => 0.7 + Math.max(0, -h.y) * 0.9,
   });
   // Puente de la nariz: pelo corto
   addHair(head, ctx, {
     center: MUZ_C,
     radii: MUZ_R,
-    count: 900,
+    count: 1600,
+    clump: 0.2,
+    lockSize: 6,
     length: 0.025,
     droop: -0.3,
     flow: [0, 0, -0.8],
-    width: 0.0035,
     colors: [PALETTE.furWarm, PALETTE.furTan],
     filter: (h) => h.y > 0.45,
   });
 
   const noseMat = new THREE.MeshPhysicalMaterial({
     color: PALETTE.nose,
+    bumpMap: noseBump(ctx.rand),
+    bumpScale: 1.5,
     roughness: 0.5,
     clearcoat: 0.6,
     clearcoatRoughness: 0.3,
@@ -597,7 +478,9 @@ export function createShorkie({ seed = 7, quality = 1 } = {}) {
     addHair(seg, ctx, {
       center: [0, 0.03, 0],
       radii: [r, 0.04, r],
-      count: 450,
+      count: 900,
+      lockSize: 18,
+      clump: 0.85,
       length: 0.12 - i * 0.01,
       droop: 1.4,
       flow: [0, 0, -0.3],

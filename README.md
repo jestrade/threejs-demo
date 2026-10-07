@@ -1,66 +1,74 @@
 # 🐶 Shorkie 3D
 
-Un perrito **shorkie** (Shih Tzu × Yorkshire Terrier) caminando, hecho con [three.js](https://threejs.org/).
-Pelaje crema claro, orejas puntiagudas y erguidas, hocico corto y la lengüita afuera.
+A walking **shorkie** (Shih Tzu × Yorkshire Terrier) built with [three.js](https://threejs.org/):
+cream coat, tall pointy ears with fringes, short muzzle and the tongue sticking out.
 
-Todo el modelo es procedural: no hay archivos 3D. El pelaje son ~40 000 mechones
-curvos generados por código:
+The whole dog is procedural — there are no 3D model files.
 
-- cada mechón nace en la piel, se dobla por la gravedad y no atraviesa el cuerpo;
-- raya en el lomo, falda larga, barba y bigotes que caen hacia los lados;
-- raíz más oscura y punta más clara, con *sheen* para el brillo suave del pelo;
-- las puntas se mueven con una brisa leve y con la inercia al caminar (vertex shader).
+## How it works
 
-Ojos y nariz usan `MeshPhysicalMaterial` con *clearcoat* e iluminación ambiental
-(`RoomEnvironment`) para que tengan brillo húmedo.
+### Sculpted hair locks
 
-### Calidad
+The coat is made of thousands of hair **locks**, styled after hand-sculpted dog models:
 
-En equipos lentos agrega `?quality=0.5` (o menor) a la URL para usar menos mechones.
-En celulares se usa `0.5` por defecto.
+- each lock grows from the skin with gravity and a combing direction, and never goes through the body;
+- it is a tapered tube with a flattened cross-section that splits into 3 sub-locks fanning out near the tip;
+- spine parting, a long "skirt", moustache and beard falling to the sides, fringed ears with tufts inside;
+- vertex colors carry the ambient occlusion (darker roots and undersides) and tan-tinted tips on the head and ears;
+- the tips sway with a light breeze and lag behind with the walking motion (vertex shader).
 
-## Cómo correrlo
+### Face and lighting
 
-No necesita build; solo un servidor estático (los módulos ES no cargan desde `file://`):
+- Eyes have a procedural iris texture and a wet clearcoat; the nose has a leathery bump map.
+- The scene uses a physical sky (`Sky`) that also feeds the image-based lighting, plus a grass bounce.
+
+### Animation
+
+- **Legs**: 4-beat walk (left hind → left fore → right hind → right fore); hip, knee/hock and paw bend during the swing.
+- **Body**: bobbing and slight rolling with each step.
+- **Head and ears**: the head is stabilized while walking and looks around when idle; the ears bounce and twitch.
+- Tail wagging, panting tongue and blinking.
+
+## Running it
+
+No build step — just serve the folder statically (ES modules don't load from `file://`):
 
 ```bash
 npx serve .
-# o
+# or
 python3 -m http.server 8000
 ```
 
-Abre `http://localhost:8000`.
+Then open `http://localhost:8000`.
+
+### Quality
+
+On slower machines add `?quality=0.5` (or lower) to the URL to generate fewer locks.
+Touch devices use `0.5` by default.
 
 ### GitHub Pages
 
-En **Settings → Pages**, elige *Deploy from a branch* → `main` / `(root)`.
+In **Settings → Pages**, choose *Deploy from a branch* → `main` / `(root)`.
 
-## Controles
+## Controls
 
-| Acción | Control |
+| Action | Control |
 | --- | --- |
-| Girar / zoom de cámara | arrastrar / rueda del mouse |
-| Caminar manualmente | `W A S D` o flechas |
-| Ladrar | `Espacio` o el botón 🔊 |
-| Velocidad, pausa, cámara que sigue | panel de la esquina |
+| Orbit / zoom camera | drag / mouse wheel |
+| Walk manually | `W A S D` or arrow keys |
+| Bark | `Space` or the 🔊 button |
+| Speed, pause, follow camera | panel in the corner |
 
-Sin control manual, el perro pasea solo por el camino circular.
+Without manual control the dog walks around the circular path by itself.
 
-## Estructura
+## Project structure
 
 ```
-index.html      página + import map de three.js (CDN)
-style.css       estilos del panel
-src/main.js     escena, cámara, suelo, controles y bucle
-src/dog.js      modelo del shorkie y animación de caminata
+index.html      page + three.js import map (CDN)
+style.css       panel styles
+src/main.js     scene, sky, camera, ground, controls and main loop
+src/dog.js      shorkie model (body, head, ears, legs, tail) and walk animation
+src/hair.js     hair lock generator and hair material
 ```
 
-### Animación
-
-- **Patas**: paso de 4 tiempos (trasera izq → delantera izq → trasera der → delantera der);
-  cadera y rodilla se doblan durante la fase de balanceo.
-- **Cuerpo**: rebote y balanceo ligero con cada paso.
-- **Cabeza y orejas**: rebotan al caminar; quieto, mira a su alrededor.
-- **Cola** moviéndose, jadeo de la lengua y parpadeo.
-
-Para ajustar el aspecto, cambia `PALETTE` y los parámetros de `addHair()` en `src/dog.js`.
+To tweak the look, change `PALETTE` in `src/dog.js` and the `addHair()` options (length, droop, flow, clump, …).

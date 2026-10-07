@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { Sky } from 'three/addons/objects/Sky.js';
 import { createShorkie } from './dog.js';
 
 // ---------- Escena ----------
@@ -11,12 +11,11 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = 0.95;
 container.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color('#dfe9f2');
-scene.fog = new THREE.Fog('#dfe9f2', 12, 40);
+scene.fog = new THREE.Fog('#d3dee6', 14, 45);
 
 const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.05, 200);
 camera.position.set(2.6, 1.6, 3.2);
@@ -28,14 +27,42 @@ controls.maxDistance = 14;
 controls.maxPolarAngle = Math.PI * 0.49;
 controls.target.set(0, 0.5, 0);
 
-// Iluminación ambiental (IBL) para reflejos y luz suave en ojos, nariz y pelo
-const pmrem = new THREE.PMREMGenerator(renderer);
-scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-scene.environmentIntensity = 0.55;
+// ---------- Cielo e iluminación ----------
+const SUN_DIR = new THREE.Vector3(4, 6, 3).normalize();
 
-scene.add(new THREE.HemisphereLight('#eef5ff', '#a89878', 0.9));
-const sun = new THREE.DirectionalLight('#fff1dc', 2.6);
-sun.position.set(4, 8, 3);
+function makeSky() {
+  const sky = new Sky();
+  sky.scale.setScalar(100);
+  const u = sky.material.uniforms;
+  u.turbidity.value = 5;
+  u.rayleigh.value = 1.4;
+  u.mieCoefficient.value = 0.004;
+  u.mieDirectionalG.value = 0.8;
+  u.sunPosition.value.copy(SUN_DIR);
+  return sky;
+}
+scene.add(makeSky());
+
+// Iluminación ambiental (IBL) a partir del mismo cielo + rebote del pasto,
+// para reflejos naturales en ojos, nariz y pelo
+{
+  const envScene = new THREE.Scene();
+  envScene.add(makeSky());
+  const bounce = new THREE.Mesh(
+    new THREE.CircleGeometry(50, 32),
+    new THREE.MeshBasicMaterial({ color: '#5d6b45' })
+  );
+  bounce.rotation.x = -Math.PI / 2;
+  bounce.position.y = -1;
+  envScene.add(bounce);
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(envScene, 0.02).texture;
+  scene.environmentIntensity = 0.7;
+}
+
+scene.add(new THREE.HemisphereLight('#dfeaff', '#8d8a62', 0.6));
+const sun = new THREE.DirectionalLight('#fff0d6', 3.2);
+sun.position.copy(SUN_DIR).multiplyScalar(9);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.camera.left = -1.6;
@@ -50,9 +77,32 @@ scene.add(sun);
 scene.add(sun.target);
 
 // ---------- Suelo ----------
+// Textura de pasto/tierra con ruido, generada en un canvas
+function noiseTexture(base, spots, repeat) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 256;
+  const g = canvas.getContext('2d');
+  g.fillStyle = base;
+  g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 6000; i++) {
+    g.fillStyle = spots[i % spots.length];
+    g.globalAlpha = 0.15 + Math.random() * 0.35;
+    g.fillRect(Math.random() * 256, Math.random() * 256, 1 + Math.random() * 3, 1 + Math.random() * 3);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(repeat, repeat);
+  tex.anisotropy = 8;
+  return tex;
+}
+
 const ground = new THREE.Mesh(
   new THREE.CircleGeometry(40, 64),
-  new THREE.MeshStandardMaterial({ color: '#c9dcae', roughness: 1 })
+  new THREE.MeshStandardMaterial({
+    map: noiseTexture('#7d9455', ['#6a8246', '#91a865', '#5c7240', '#a3a76b'], 60),
+    roughness: 1,
+  })
 );
 ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
@@ -61,7 +111,10 @@ scene.add(ground);
 const PATH_RADIUS = 3;
 const path = new THREE.Mesh(
   new THREE.RingGeometry(PATH_RADIUS - 0.35, PATH_RADIUS + 0.35, 96),
-  new THREE.MeshStandardMaterial({ color: '#e6d6bb', roughness: 1 })
+  new THREE.MeshStandardMaterial({
+    map: noiseTexture('#b9a78a', ['#a59275', '#c8b89c', '#8f7f66'], 20),
+    roughness: 1,
+  })
 );
 path.rotation.x = -Math.PI / 2;
 path.position.y = 0.002;
@@ -87,7 +140,7 @@ scene.add(path);
     const s = 0.6 + Math.random() * 0.9;
     m.compose(new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r), q, new THREE.Vector3(s, s, s));
     grass.setMatrixAt(i, m);
-    grass.setColorAt(i, c.setHSL(0.24 + Math.random() * 0.06, 0.4, 0.45 + Math.random() * 0.15));
+    grass.setColorAt(i, c.setHSL(0.2 + Math.random() * 0.07, 0.4, 0.28 + Math.random() * 0.14));
     i++;
   }
   grass.receiveShadow = true;
@@ -231,7 +284,7 @@ function tick() {
   dog.update(dt, state.speed, time);
 
   // La sombra sigue al perro
-  sun.position.set(state.pos.x + 4, 8, state.pos.z + 3);
+  sun.position.copy(SUN_DIR).multiplyScalar(9).add(state.pos);
   sun.target.position.copy(state.pos);
 
   // Cámara que acompaña
