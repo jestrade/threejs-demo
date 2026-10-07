@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Shorkie 3D</title>
+    <link rel="stylesheet" href="./style.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <div id="bubble" class="bubble">¡Guau!</div>
+
+    <aside class="panel">
+      <h1>🐶 Shorkie 3D</h1>
+      <p class="sub">Shih Tzu × Yorkie con orejas puntiagudas</p>
+
+      <label class="row">
+        <span>Velocidad</span>
+        <input id="speed" type="range" min="0" max="1.6" step="0.05" value="0.7" />
+      </label>
+
+      <label class="row check">
+        <input id="manual" type="checkbox" />
+        <span>Control manual (WASD / flechas)</span>
+      </label>
+
+      <label class="row check">
+        <input id="follow" type="checkbox" checked />
+        <span>Cámara sigue al perro</span>
+      </label>
+
+      <div class="buttons">
+        <button id="pause">⏸ Pausar</button>
+        <button id="bark">🔊 Ladrar (espacio)</button>
+      </div>
+
+      <p class="hint">Arrastra para girar la cámara · rueda para zoom</p>
+    </aside>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
