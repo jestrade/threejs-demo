@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { createShorkie } from './dog.js';
 import { loadMeshyShorkie, loadMeshyWalker } from './meshyDog.js';
+import { loadTripoShorkie, loadTripoWalker } from './tripoDog.js';
 
 // ---------- Escena ----------
 const container = document.getElementById('app');
@@ -166,8 +167,8 @@ const quality = THREE.MathUtils.clamp(
   0.1,
   2
 );
-// Tres perros: Meshy caminando (cabeza Meshy + cuerpo procedural), Meshy sentado
-// (el modelo completo) y el procedural
+// Cinco perros: Tripo y Meshy caminando (su cabeza sobre el cuerpo procedural),
+// Tripo y Meshy quietos (el modelo completo) y el procedural
 const dogs = {};
 let dog = null;
 let dogRequest = 0;
@@ -175,8 +176,12 @@ let dogRequest = 0;
 async function getDog(kind) {
   if (!dogs[kind]) {
     const meshy = { objUrl: 'models/shorkie-meshy.obj', textureUrl: 'models/shorkie-meshy.webp' };
-    if (kind === 'meshy') dogs[kind] = loadMeshyShorkie(meshy);
-    else if (kind === 'meshy-walk') dogs[kind] = loadMeshyWalker({ ...meshy, createBody: (coat) => createShorkie({ quality, coat }) });
+    const tripo = { url: 'models/shorkie-tripo.glb' };
+    const createBody = (coat) => createShorkie({ quality, coat });
+    if (kind === 'tripo') dogs[kind] = loadTripoShorkie(tripo);
+    else if (kind === 'tripo-walk') dogs[kind] = loadTripoWalker({ ...tripo, createBody });
+    else if (kind === 'meshy') dogs[kind] = loadMeshyShorkie(meshy);
+    else if (kind === 'meshy-walk') dogs[kind] = loadMeshyWalker({ ...meshy, createBody });
     else dogs[kind] = Promise.resolve(createShorkie({ quality }));
   }
   return dogs[kind];
@@ -227,7 +232,7 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('keyup', (e) => keys.delete(e.code));
 ui.bark.addEventListener('click', bark);
 
-ui.model.value = ['meshy', 'procedural'].includes(params.get('dog')) ? params.get('dog') : 'meshy-walk';
+ui.model.value = ['tripo', 'meshy-walk', 'meshy', 'procedural'].includes(params.get('dog')) ? params.get('dog') : 'tripo-walk';
 ui.model.addEventListener('change', () => setDog(ui.model.value));
 setDog(ui.model.value);
 

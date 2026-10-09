@@ -3,16 +3,42 @@
 A walking **shorkie** (Shih Tzu × Yorkshire Terrier) built with [three.js](https://threejs.org/):
 cream coat, tall pointy ears with fringes, short muzzle and the tongue sticking out.
 
-The app has three dogs, selectable in the panel:
+The app has five dogs, selectable in the panel:
 
-- **Meshy walking** (default) — the real dog's head from the Meshy model on the articulated
+- **Tripo walking** (default) — the head of the [Tripo](https://www.tripo3d.ai/) model on the
+  articulated procedural body (same hybrid as the Meshy one, see below).
+- **Tripo model (lying down)** — a much more detailed model generated with Tripo from a photo of
+  the real dog: sculpted hair locks in the geometry plus a normal map. It lies on the ground, looks
+  around, twitches its ears, breathes and wags its tail, but it cannot walk (no skeleton).
+- **Meshy walking** — the real dog's head from the Meshy model on the articulated
   procedural body, whose coat is tinted with colors sampled from the Meshy texture.
 - **Meshy model (sitting)** — a realistic scan-like model generated with [Meshy](https://www.meshy.ai/)
   from a photo of the real dog. It sits, looks around, twitches its ears, breathes and wags its tail,
   but it cannot walk (it has no skeleton and it was generated in a sitting pose).
 - **Procedural (walking)** — a dog built entirely in code that walks around the path.
 
-Open `?dog=meshy` or `?dog=procedural` to start with another dog.
+Open `?dog=tripo`, `?dog=meshy-walk`, `?dog=meshy` or `?dog=procedural` to start with another dog.
+
+## Tripo model
+
+`models/shorkie-tripo.glb` comes from a Tripo image-to-3D export (PBR GLB, ~1M vertices, 22 MB) of the
+dog lying on a sofa cushion. The scripts in `tools/tripo/` turn it into a 2 MB web model:
+
+```bash
+cd tools/tripo && npm install
+node dump_glb.mjs tripo_export.glb work      # decode meshopt → raw arrays + textures
+python3 crop_tripo.py work                   # remove sofa/cushion, stand upright facing +Z (numpy, scipy, Pillow)
+python3 textures_tripo.py work               # cream recolor + 2K/1K WebP textures
+node build_glb.mjs work ../../models/shorkie-tripo.glb 0.15   # simplify to ~140k triangles
+```
+
+- `crop_tripo.py` tells the sofa from the dog by the texture color (blue-grey fabric), fits the
+  cushion's top surface, keeps what is above it (the largest connected piece, after welding the UV
+  seams), levels it on the plane of its paws and aligns the body axis with +Z.
+- `build_glb.mjs` simplifies with meshoptimizer and writes a GLB with `EXT_meshopt_compression`,
+  `KHR_mesh_quantization` and `EXT_texture_webp`; the app loads it with `GLTFLoader` + `MeshoptDecoder`.
+
+`src/tripoDog.js` reuses the region animation and the head-swap hybrid from `src/meshyDog.js`.
 
 ## Meshy model
 
@@ -35,8 +61,9 @@ badly distort it. Instead, `loadMeshyWalker()` cuts the head (above the neck) ou
 mounts it on the procedural dog, replacing its procedural head; the head keeps the procedural
 head animation (bobbing, looking around, barking).
 
-For a fully realistic walking dog, the model would need to be generated standing on four legs
-and exported rigged with a walk cycle (e.g. GLB); it could then be loaded with `GLTFLoader`.
+The Tripo model has the same problem (it lies down with the legs folded under the body), so its
+walking version is the same hybrid. For a fully realistic walking dog, the model would need to be
+generated standing on four legs and exported rigged with a walk cycle (e.g. GLB with animations).
 
 ## How the procedural dog works
 
@@ -101,11 +128,12 @@ Without manual control the procedural dog walks around the circular path by itse
 index.html      page + three.js import map (CDN)
 style.css       panel styles
 src/main.js     scene, sky, camera, ground, controls, dog switching and main loop
+src/tripoDog.js Tripo model (GLB): lying down and walking hybrid
 src/meshyDog.js Meshy model: sitting (animated by regions) and walking hybrid (Meshy head + procedural body)
 src/dog.js      procedural shorkie (body, head, ears, legs, tail) and walk animation
 src/hair.js     hair lock generator and hair material
-models/         Meshy model (OBJ) and its texture
-tools/          scripts used to prepare the Meshy model
+models/         Tripo model (GLB) and Meshy model (OBJ + texture)
+tools/          scripts used to prepare the Meshy (tools/*.py) and Tripo (tools/tripo/) models
 ```
 
 To tweak the look, change `PALETTE` in `src/dog.js` and the `addHair()` options (length, droop, flow, clump, …).

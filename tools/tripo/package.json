@@ -1,0 +1,12 @@
+{
+  "name": "shorkie-tripo-tools",
+  "private": true,
+  "type": "module",
+  "description": "Scripts used to turn the Tripo GLB export into models/shorkie-tripo.glb",
+  "dependencies": {
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
+    "@gltf-transform/functions": "^4.5.1",
+    "meshoptimizer": "^1.3.0"
+  }
+}

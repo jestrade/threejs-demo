@@ -27,37 +27,56 @@ export async function loadMeshyShorkie({ objUrl, textureUrl }) {
   map.anisotropy = 8;
 
   const source = obj.children.find((c) => c.isMesh);
-  const geometry = source.geometry;
+  return rigSittingDog(source.geometry, new THREE.MeshStandardMaterial({ map, roughness: 0.85, envMapIntensity: 0.45 }), {
+    headPivot: HEAD_PIVOT,
+    earPivots: EAR_PIVOTS,
+    tailPivot: TAIL_PIVOT,
+    chest: CHEST,
+    height: HEIGHT,
+    offset: new THREE.Vector3(-0.03, 0, 0),
+    headMarker: new THREE.Vector3(-0.02, 0.2, 0.18),
+    weights: (x, y, z) => {
+      const ear = smoothstep(0.285, 0.33, y);
+      return [
+        smoothstep(0.09, 0.17, y) * smoothstep(-0.05, 0.05, z),
+        smoothstep(-0.18, -0.24, z) * smoothstep(0.03, -0.02, y),
+        ear * smoothstep(-0.03, -0.07, x),
+        ear * smoothstep(-0.01, 0.03, x),
+      ];
+    },
+  });
+}
 
+/**
+ * Anima en el vertex shader un perro sentado sin esqueleto (mira alrededor,
+ * mueve orejas y cola, respira). rig, en coordenadas del modelo (mira hacia +Z):
+ * pivotes de cabeza, orejas y cola, centro del pecho, altura final en metros,
+ * offset del modelo (en sus unidades), punto de la cabeza para el globo y
+ * weights(x, y, z) → [cabeza, cola, oreja izq, oreja der].
+ */
+export function rigSittingDog(geometry, material, rig) {
   // Pesos por vértice: x = cabeza, y = cola, z = oreja izq, w = oreja der
   const pos = geometry.attributes.position;
-  const rig = new Float32Array(pos.count * 4);
+  const weights = new Float32Array(pos.count * 4);
   for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i);
-    const y = pos.getY(i);
-    const z = pos.getZ(i);
-    rig[i * 4] = smoothstep(0.09, 0.17, y) * smoothstep(-0.05, 0.05, z);
-    rig[i * 4 + 1] = smoothstep(-0.18, -0.24, z) * smoothstep(0.03, -0.02, y);
-    const ear = smoothstep(0.285, 0.33, y);
-    rig[i * 4 + 2] = ear * smoothstep(-0.03, -0.07, x);
-    rig[i * 4 + 3] = ear * smoothstep(-0.01, 0.03, x);
+    weights.set(rig.weights(pos.getX(i), pos.getY(i), pos.getZ(i)), i * 4);
   }
-  geometry.setAttribute('aRig', new THREE.BufferAttribute(rig, 4));
+  geometry.setAttribute('aRig', new THREE.BufferAttribute(weights, 4));
 
   const uniforms = {
     uHeadRot: { value: new THREE.Matrix3() },
     uTailRot: { value: new THREE.Matrix3() },
     uEarRotL: { value: new THREE.Matrix3() },
     uEarRotR: { value: new THREE.Matrix3() },
-    uHeadPivot: { value: HEAD_PIVOT },
-    uTailPivot: { value: TAIL_PIVOT },
-    uEarPivotL: { value: EAR_PIVOTS[0] },
-    uEarPivotR: { value: EAR_PIVOTS[1] },
-    uChest: { value: CHEST },
+    uHeadPivot: { value: rig.headPivot },
+    uTailPivot: { value: rig.tailPivot },
+    uEarPivotL: { value: rig.earPivots[0] },
+    uEarPivotR: { value: rig.earPivots[1] },
+    uChest: { value: rig.chest },
+    uChestSize: { value: rig.chestSize ?? 0.012 },
     uBreath: { value: 0 },
   };
 
-  const material = new THREE.MeshStandardMaterial({ map, roughness: 0.85, envMapIntensity: 0.45 });
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
@@ -67,7 +86,7 @@ export async function loadMeshyShorkie({ objUrl, textureUrl }) {
 attribute vec4 aRig;
 uniform mat3 uHeadRot, uTailRot, uEarRotL, uEarRotR;
 uniform vec3 uHeadPivot, uTailPivot, uEarPivotL, uEarPivotR, uChest;
-uniform float uBreath;
+uniform float uBreath, uChestSize;
 vec3 rigPos;
 void rigApply(inout vec3 p, inout vec3 n, mat3 R, vec3 pivot, float w) {
   if (w <= 0.0) return;
@@ -86,7 +105,7 @@ rigApply(rigPos, objectNormal, uHeadRot, uHeadPivot, aRig.x);
 rigApply(rigPos, objectNormal, uTailRot, uTailPivot, aRig.y);
 // respiración: el pecho se infla un poco
 vec3 dc = position - uChest;
-float chest = exp(-dot(dc, dc) / 0.012) * (1.0 - aRig.x);
+float chest = exp(-dot(dc, dc) / uChestSize) * (1.0 - aRig.x);
 rigPos += vec3(dc.x, 0.3 * dc.y, dc.z) * chest * uBreath;`
       )
       .replace('#include <begin_vertex>', 'vec3 transformed = rigPos;');
@@ -99,19 +118,18 @@ rigPos += vec3(dc.x, 0.3 * dc.y, dc.z) * chest * uBreath;`
   // Escala y apoyo en el suelo
   geometry.computeBoundingBox();
   const box = geometry.boundingBox;
-  const scale = HEIGHT / (box.max.y - box.min.y);
+  const scale = rig.height / (box.max.y - box.min.y);
   mesh.scale.setScalar(scale);
+  // apoyado en el suelo y con el cuerpo centrado sobre el origen del grupo
+  mesh.position.copy(rig.offset).multiplyScalar(scale);
   mesh.position.y = -box.min.y * scale;
-  // centrar el cuerpo sobre el origen del grupo
-  mesh.position.x = -0.03 * scale;
-  mesh.position.z = 0.0;
 
   const group = new THREE.Group();
   group.add(mesh);
 
   // Punto de referencia en la cabeza (para el globo "¡Guau!")
   const head = new THREE.Object3D();
-  head.position.set(-0.02, 0.2, 0.18);
+  head.position.copy(rig.headMarker);
   mesh.add(head);
 
   // ---------- Animación ----------
@@ -183,7 +201,8 @@ const HEAD_OFFSET = new THREE.Vector3(0, -0.08, -0.05);
 
 // Colores del pelaje sacados de la textura de la cabeza: claros, medios y
 // oscuros (sin contar ojos, nariz ni boca), para teñir el cuerpo procedural.
-function coatFromTexture(image, uvs) {
+// flipY: si la textura se carga volteada (OBJ/TextureLoader sí, glTF no).
+function coatFromTexture(image, uvs, flipY = true) {
   const size = 128;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
@@ -196,7 +215,7 @@ function coatFromTexture(image, uvs) {
     const u = (uvs[i] + uvs[i + 2] + uvs[i + 4]) / 3;
     const v = (uvs[i + 1] + uvs[i + 3] + uvs[i + 5]) / 3;
     const px = Math.min(size - 1, Math.max(0, Math.floor(u * size)));
-    const py = Math.min(size - 1, Math.max(0, Math.floor((1 - v) * size)));
+    const py = Math.min(size - 1, Math.max(0, Math.floor((flipY ? 1 - v : v) * size)));
     const o = (py * size + px) * 4;
     c.setRGB(data[o] / 255, data[o + 1] / 255, data[o + 2] / 255, THREE.SRGBColorSpace);
     const hsl = c.getHSL({}, THREE.SRGBColorSpace);
@@ -218,42 +237,56 @@ export async function loadMeshyWalker({ objUrl, textureUrl, createBody }) {
   map.colorSpace = THREE.SRGBColorSpace;
   map.anisotropy = 8;
 
-  // Recorta los triángulos de la cabeza (la geometría del OBJ no es indexada)
-  const src = obj.children.find((c) => c.isMesh).geometry;
+  return mountHeadOnBody({
+    geometry: obj.children.find((c) => c.isMesh).geometry,
+    // un poco más clara para igualar el pelaje del cuerpo
+    material: new THREE.MeshStandardMaterial({ map, color: new THREE.Color(1.25, 1.22, 1.15), roughness: 0.85, envMapIntensity: 0.45 }),
+    isHead: (x, y, z) => y > HEAD_CUT_Y && z > -0.06,
+    pivot: HEAD_PIVOT,
+    scale: HEAD_SCALE,
+    offset: HEAD_OFFSET,
+    createBody,
+  });
+}
+
+/**
+ * Recorta la cabeza de una malla (los triángulos con los 3 vértices dentro de
+ * isHead) y la pone en lugar de la cabeza del perro procedural, que se tiñe con
+ * los colores de esa cabeza. pivot: cuello, en coordenadas de la malla;
+ * scale/offset/rotation: ajuste dentro del grupo de la cabeza procedural.
+ */
+export function mountHeadOnBody({ geometry, material, isHead, pivot, scale, offset, rotation = null, createBody }) {
+  const src = geometry.index ? geometry.toNonIndexed() : geometry;
   const attrs = ['position', 'normal', 'uv'];
   const out = Object.fromEntries(attrs.map((a) => [a, []]));
   const pos = src.attributes.position;
   for (let t = 0; t < pos.count; t += 3) {
     let inside = true;
-    for (let k = 0; k < 3 && inside; k++) {
-      inside = pos.getY(t + k) > HEAD_CUT_Y && pos.getZ(t + k) > -0.06;
-    }
+    for (let k = 0; k < 3 && inside; k++) inside = isHead(pos.getX(t + k), pos.getY(t + k), pos.getZ(t + k));
     if (!inside) continue;
     for (const a of attrs) {
       const attr = src.attributes[a];
       for (let k = 0; k < 3; k++) {
-        for (let c = 0; c < attr.itemSize; c++) out[a].push(attr.array[(t + k) * attr.itemSize + c]);
+        for (let c = 0; c < attr.itemSize; c++) out[a].push(attr.getComponent(t + k, c));
       }
     }
   }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(out.position, 3));
-  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(out.normal, 3));
-  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(out.uv, 2));
+  const head = new THREE.BufferGeometry();
+  head.setAttribute('position', new THREE.Float32BufferAttribute(out.position, 3));
+  head.setAttribute('normal', new THREE.Float32BufferAttribute(out.normal, 3));
+  head.setAttribute('uv', new THREE.Float32BufferAttribute(out.uv, 2));
   // centrar en el cuello para que gire como la cabeza procedural
-  geometry.translate(-HEAD_PIVOT.x, -HEAD_PIVOT.y, -HEAD_PIVOT.z);
+  head.translate(-pivot.x, -pivot.y, -pivot.z);
 
-  const headMesh = new THREE.Mesh(
-    geometry,
-    // un poco más clara para igualar el pelaje del cuerpo
-    new THREE.MeshStandardMaterial({ map, color: new THREE.Color(1.25, 1.22, 1.15), roughness: 0.85, envMapIntensity: 0.45 })
-  );
+  const headMesh = new THREE.Mesh(head, material);
   headMesh.castShadow = true;
   headMesh.receiveShadow = true;
-  headMesh.scale.setScalar(HEAD_SCALE);
-  headMesh.position.copy(HEAD_OFFSET);
+  headMesh.scale.setScalar(scale);
+  headMesh.position.copy(offset);
+  if (rotation) headMesh.rotation.copy(rotation);
 
-  const dog = createBody(coatFromTexture(map.image, out.uv));
+  const map = material.map;
+  const dog = createBody(coatFromTexture(map.image, out.uv, map.flipY));
   dog.head.clear(); // quita la cabeza procedural (las animaciones de cabeza siguen aplicando)
   dog.head.add(headMesh);
   return { ...dog, canWalk: true };
