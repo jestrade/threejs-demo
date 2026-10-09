@@ -110,11 +110,15 @@ export function rigSittingDog(geometry, material, rig) {
 
     // Jadeo: la cabeza sube y baja muy poco
     let pitch = lookPitch + Math.sin(time * 9) * 0.012;
+    let open = 0;
     if (barkTime > 0) {
       barkTime = Math.max(0, barkTime - dt);
-      pitch -= Math.sin((1 - barkTime / 0.35) * Math.PI) * 0.22;
+      open = Math.sin((1 - barkTime / 0.35) * Math.PI);
+      pitch -= open * 0.22;
     }
     setRot(uniforms.uHeadRot.value, pitch, lookYaw, lookTilt);
+    // la boca se abre con cada ladrido (si el modelo tiene mandíbula)
+    setRot(uniforms.uJawRot.value, open * 0.5, 0, 0);
 
     // Orejas: pequeños giros de atención
     const twitchL = Math.max(0, Math.sin(time * 0.8) - 0.9) * 2.5;
@@ -136,18 +140,23 @@ export function rigSittingDog(geometry, material, rig) {
 }
 
 /**
- * Agrega a la malla las regiones animables (cabeza, cola, orejas, pecho) y
+ * Agrega a la malla las regiones animables (cabeza, cola, orejas, pecho y,
+ * si weights devuelve un quinto valor, la mandíbula con pivote rig.jawPivot) y
  * parchea el material para moverlas en el vertex shader. Devuelve los uniforms:
- * uHeadRot, uTailRot, uEarRotL, uEarRotR (Matrix3) y uBreath.
+ * uHeadRot, uTailRot, uEarRotL, uEarRotR, uJawRot (Matrix3) y uBreath.
  */
 export function addRegionRig(geometry, material, rig) {
   // Pesos por vértice: x = cabeza, y = cola, z = oreja izq, w = oreja der
   const pos = geometry.attributes.position;
   const weights = new Float32Array(pos.count * 4);
+  const jaw = new Float32Array(pos.count); // quinto valor opcional: mandíbula
   for (let i = 0; i < pos.count; i++) {
-    weights.set(rig.weights(pos.getX(i), pos.getY(i), pos.getZ(i)), i * 4);
+    const w = rig.weights(pos.getX(i), pos.getY(i), pos.getZ(i));
+    weights.set(w.slice(0, 4), i * 4);
+    jaw[i] = w[4] ?? 0;
   }
   geometry.setAttribute('aRig', new THREE.BufferAttribute(weights, 4));
+  geometry.setAttribute('aJaw', new THREE.BufferAttribute(jaw, 1));
 
   const uniforms = {
     uHeadRot: { value: new THREE.Matrix3() },
@@ -160,6 +169,8 @@ export function addRegionRig(geometry, material, rig) {
     uEarPivotR: { value: rig.earPivots[1] },
     uChest: { value: rig.chest },
     uChestSize: { value: rig.chestSize ?? 0.012 },
+    uJawRot: { value: new THREE.Matrix3() },
+    uJawPivot: { value: rig.jawPivot ?? new THREE.Vector3() },
     uBreath: { value: 0 },
   };
 
@@ -170,8 +181,9 @@ export function addRegionRig(geometry, material, rig) {
         '#include <common>',
         `#include <common>
 attribute vec4 aRig;
-uniform mat3 uHeadRot, uTailRot, uEarRotL, uEarRotR;
-uniform vec3 uHeadPivot, uTailPivot, uEarPivotL, uEarPivotR, uChest;
+attribute float aJaw;
+uniform mat3 uHeadRot, uTailRot, uEarRotL, uEarRotR, uJawRot;
+uniform vec3 uHeadPivot, uTailPivot, uEarPivotL, uEarPivotR, uJawPivot, uChest;
 uniform float uBreath, uChestSize;
 vec3 rigPos;
 void rigApply(inout vec3 p, inout vec3 n, mat3 R, vec3 pivot, float w) {
@@ -184,7 +196,8 @@ void rigApply(inout vec3 p, inout vec3 n, mat3 R, vec3 pivot, float w) {
         '#include <beginnormal_vertex>',
         `#include <beginnormal_vertex>
 rigPos = position;
-// las orejas se mueven sobre la cabeza, luego la cabeza sobre el cuello
+// orejas y mandíbula se mueven sobre la cabeza, luego la cabeza sobre el cuello
+rigApply(rigPos, objectNormal, uJawRot, uJawPivot, aJaw);
 rigApply(rigPos, objectNormal, uEarRotL, uEarPivotL, aRig.z);
 rigApply(rigPos, objectNormal, uEarRotR, uEarPivotR, aRig.w);
 rigApply(rigPos, objectNormal, uHeadRot, uHeadPivot, aRig.x);

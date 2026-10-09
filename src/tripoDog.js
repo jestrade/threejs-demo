@@ -13,6 +13,9 @@ const HEAD_PIVOT = new THREE.Vector3(-0.03, 0.27, 0.24);
 const EAR_PIVOTS = [new THREE.Vector3(-0.11, 0.39, 0.38), new THREE.Vector3(0.02, 0.39, 0.3)];
 const TAIL_PIVOT = new THREE.Vector3(0, 0.05, -0.25);
 const CHEST = new THREE.Vector3(-0.02, 0.17, 0.17);
+// mandíbula: bajo la comisura de la boca (la lengua asoma en y ≈ 0.22, z ≈ 0.37)
+const JAW_PIVOT = new THREE.Vector3(-0.03, 0.225, 0.31);
+const jawWeight = (x, y, z) => smoothstep(0.232, 0.218, y) * smoothstep(0.15, 0.18, y) * smoothstep(0.3, 0.345, z);
 const HEIGHT = 0.6; // altura final del perro echado, en metros de la escena
 
 function smoothstep(a, b, x) {
@@ -66,8 +69,10 @@ export async function loadTripoShorkie({ url }) {
         smoothstep(-0.24, -0.29, z) * smoothstep(0.12, 0.08, y),
         ear * smoothstep(-0.07, -0.09, x),
         ear * smoothstep(-0.07, -0.05, x),
+        jawWeight(x, y, z),
       ];
     },
+    jawPivot: JAW_PIVOT,
   });
 }
 
@@ -140,8 +145,15 @@ export async function loadTripoWalker({ url, createBody }) {
   const rig = {
     weights: (x, y, z) => {
       const ear = smoothstep(0.385, 0.42, y);
-      return [smoothstep(0.2, 0.29, y) * smoothstep(0.16, 0.25, z), 0, ear * smoothstep(-0.07, -0.09, x), ear * smoothstep(-0.07, -0.05, x)];
+      return [
+        smoothstep(0.2, 0.29, y) * smoothstep(0.16, 0.25, z),
+        0,
+        ear * smoothstep(-0.07, -0.09, x),
+        ear * smoothstep(-0.07, -0.05, x),
+        jawWeight(x, y, z),
+      ];
     },
+    jawPivot: standUp(JAW_PIVOT.x, JAW_PIVOT.y, JAW_PIVOT.z),
     headPivot: standUp(HEAD_PIVOT.x, HEAD_PIVOT.y, HEAD_PIVOT.z),
     earPivots: EAR_PIVOTS.map((p) => standUp(p.x, p.y, p.z)),
     tailPivot: new THREE.Vector3(),
@@ -192,18 +204,25 @@ export async function loadTripoWalker({ url, createBody }) {
   const { head } = dog;
   head.clear(); // la cabeza procedural solo queda como referencia de la animación
   head.parent.add(mesh);
-  // la cola procedural sale de la grupa de Tripo
-  standUp(-0.04, backTarget(-0.23) - 0.05, -0.23, dog.tail.position);
-  dog.tail.rotation.x = 0.5; // más pegada al lomo
-  dog.tail.scale.setScalar(0.85);
+  // sin cola procedural: no combinaba con el pelaje de Tripo (la de Tripo quedó bajo el corte)
+  dog.tail.removeFromParent();
 
   // la cabeza de Tripo copia la rotación de la cabeza procedural
   const m4 = new THREE.Matrix4();
   const euler = new THREE.Euler(0, 0, 0, 'YXZ');
   const setRotation = (target, x, y, z) => target.setFromMatrix4(m4.makeRotationFromEuler(euler.set(x, y, z)));
+  let barkTime = 0;
+  const bark = () => {
+    dog.bark();
+    barkTime = 0.35;
+  };
   const update = (dt, speed, time) => {
     dog.update(dt, speed, time);
     uniforms.uHeadRot.value.setFromMatrix4(m4.makeRotationFromEuler(head.rotation));
+    // la boca se abre con cada ladrido
+    barkTime = Math.max(0, barkTime - dt);
+    const open = barkTime > 0 ? Math.sin((1 - barkTime / 0.35) * Math.PI) : 0;
+    setRotation(uniforms.uJawRot.value, open * 0.5, 0, 0);
     const twitchL = Math.max(0, Math.sin(time * 0.8) - 0.9) * 2.5;
     const twitchR = Math.max(0, Math.sin(time * 0.65 + 2) - 0.9) * 2.5;
     setRotation(uniforms.uEarRotL.value, -twitchL * 0.4, 0, twitchL * 0.25);
@@ -214,5 +233,5 @@ export async function loadTripoWalker({ url, createBody }) {
   const marker = new THREE.Object3D();
   marker.position.copy(standUp(-0.03, 0.42, 0.34));
   head.parent.add(marker);
-  return { ...dog, head: marker, update, canWalk: true };
+  return { ...dog, head: marker, update, bark, canWalk: true };
 }
