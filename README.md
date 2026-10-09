@@ -5,8 +5,8 @@ cream coat, tall pointy ears with fringes, short muzzle and the tongue sticking 
 
 The app has five dogs, selectable in the panel:
 
-- **Tripo walking** (default) — the head of the [Tripo](https://www.tripo3d.ai/) model on the
-  articulated procedural body (same hybrid as the Meshy one, see below).
+- **Tripo walking** (default) — the body and head of the [Tripo](https://www.tripo3d.ai/) model,
+  "stood up" on the procedural legs and tail (see below).
 - **Tripo model (lying down)** — a much more detailed model generated with Tripo from a photo of
   the real dog: sculpted hair locks in the geometry plus a normal map. It lies on the ground, looks
   around, twitches its ears, breathes and wags its tail, but it cannot walk (no skeleton).
@@ -61,8 +61,11 @@ badly distort it. Instead, `loadMeshyWalker()` cuts the head (above the neck) ou
 mounts it on the procedural dog, replacing its procedural head; the head keeps the procedural
 head animation (bobbing, looking around, barking).
 
-The Tripo model has the same problem (it lies down with the legs folded under the body), so its
-walking version is the same hybrid. For a fully realistic walking dog, the model would need to be
+The Tripo model lies down with the legs folded under the body. Its walking version
+(`loadTripoWalker()`) keeps the real coat instead: it cuts off what touches the ground (folded legs),
+stretches the body vertically to standing height, levels the back (the rump is much lower when lying),
+widens it a little and mounts it on the procedural dog built with `bodyHair: false` (only legs and
+tail). The head moves with the procedural head animation through the same region rig. For a fully realistic walking dog, the model would need to be
 generated standing on four legs and exported rigged with a walk cycle (e.g. GLB with animations).
 
 ## How the procedural dog works

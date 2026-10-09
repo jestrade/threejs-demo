@@ -55,62 +55,7 @@ export async function loadMeshyShorkie({ objUrl, textureUrl }) {
  * weights(x, y, z) → [cabeza, cola, oreja izq, oreja der].
  */
 export function rigSittingDog(geometry, material, rig) {
-  // Pesos por vértice: x = cabeza, y = cola, z = oreja izq, w = oreja der
-  const pos = geometry.attributes.position;
-  const weights = new Float32Array(pos.count * 4);
-  for (let i = 0; i < pos.count; i++) {
-    weights.set(rig.weights(pos.getX(i), pos.getY(i), pos.getZ(i)), i * 4);
-  }
-  geometry.setAttribute('aRig', new THREE.BufferAttribute(weights, 4));
-
-  const uniforms = {
-    uHeadRot: { value: new THREE.Matrix3() },
-    uTailRot: { value: new THREE.Matrix3() },
-    uEarRotL: { value: new THREE.Matrix3() },
-    uEarRotR: { value: new THREE.Matrix3() },
-    uHeadPivot: { value: rig.headPivot },
-    uTailPivot: { value: rig.tailPivot },
-    uEarPivotL: { value: rig.earPivots[0] },
-    uEarPivotR: { value: rig.earPivots[1] },
-    uChest: { value: rig.chest },
-    uChestSize: { value: rig.chestSize ?? 0.012 },
-    uBreath: { value: 0 },
-  };
-
-  material.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, uniforms);
-    shader.vertexShader = shader.vertexShader
-      .replace(
-        '#include <common>',
-        `#include <common>
-attribute vec4 aRig;
-uniform mat3 uHeadRot, uTailRot, uEarRotL, uEarRotR;
-uniform vec3 uHeadPivot, uTailPivot, uEarPivotL, uEarPivotR, uChest;
-uniform float uBreath, uChestSize;
-vec3 rigPos;
-void rigApply(inout vec3 p, inout vec3 n, mat3 R, vec3 pivot, float w) {
-  if (w <= 0.0) return;
-  p = mix(p, pivot + R * (p - pivot), w);
-  n = normalize(mix(n, R * n, w));
-}`
-      )
-      .replace(
-        '#include <beginnormal_vertex>',
-        `#include <beginnormal_vertex>
-rigPos = position;
-// las orejas se mueven sobre la cabeza, luego la cabeza sobre el cuello
-rigApply(rigPos, objectNormal, uEarRotL, uEarPivotL, aRig.z);
-rigApply(rigPos, objectNormal, uEarRotR, uEarPivotR, aRig.w);
-rigApply(rigPos, objectNormal, uHeadRot, uHeadPivot, aRig.x);
-rigApply(rigPos, objectNormal, uTailRot, uTailPivot, aRig.y);
-// respiración: el pecho se infla un poco
-vec3 dc = position - uChest;
-float chest = exp(-dot(dc, dc) / uChestSize) * (1.0 - aRig.x);
-rigPos += vec3(dc.x, 0.3 * dc.y, dc.z) * chest * uBreath;`
-      )
-      .replace('#include <begin_vertex>', 'vec3 transformed = rigPos;');
-  };
-
+  const uniforms = addRegionRig(geometry, material, rig);
   const mesh = new THREE.Mesh(geometry, material);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
@@ -190,6 +135,71 @@ rigPos += vec3(dc.x, 0.3 * dc.y, dc.z) * chest * uBreath;`
   return { group, head, update, bark, canWalk: false };
 }
 
+/**
+ * Agrega a la malla las regiones animables (cabeza, cola, orejas, pecho) y
+ * parchea el material para moverlas en el vertex shader. Devuelve los uniforms:
+ * uHeadRot, uTailRot, uEarRotL, uEarRotR (Matrix3) y uBreath.
+ */
+export function addRegionRig(geometry, material, rig) {
+  // Pesos por vértice: x = cabeza, y = cola, z = oreja izq, w = oreja der
+  const pos = geometry.attributes.position;
+  const weights = new Float32Array(pos.count * 4);
+  for (let i = 0; i < pos.count; i++) {
+    weights.set(rig.weights(pos.getX(i), pos.getY(i), pos.getZ(i)), i * 4);
+  }
+  geometry.setAttribute('aRig', new THREE.BufferAttribute(weights, 4));
+
+  const uniforms = {
+    uHeadRot: { value: new THREE.Matrix3() },
+    uTailRot: { value: new THREE.Matrix3() },
+    uEarRotL: { value: new THREE.Matrix3() },
+    uEarRotR: { value: new THREE.Matrix3() },
+    uHeadPivot: { value: rig.headPivot },
+    uTailPivot: { value: rig.tailPivot },
+    uEarPivotL: { value: rig.earPivots[0] },
+    uEarPivotR: { value: rig.earPivots[1] },
+    uChest: { value: rig.chest },
+    uChestSize: { value: rig.chestSize ?? 0.012 },
+    uBreath: { value: 0 },
+  };
+
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+attribute vec4 aRig;
+uniform mat3 uHeadRot, uTailRot, uEarRotL, uEarRotR;
+uniform vec3 uHeadPivot, uTailPivot, uEarPivotL, uEarPivotR, uChest;
+uniform float uBreath, uChestSize;
+vec3 rigPos;
+void rigApply(inout vec3 p, inout vec3 n, mat3 R, vec3 pivot, float w) {
+  if (w <= 0.0) return;
+  p = mix(p, pivot + R * (p - pivot), w);
+  n = normalize(mix(n, R * n, w));
+}`
+      )
+      .replace(
+        '#include <beginnormal_vertex>',
+        `#include <beginnormal_vertex>
+rigPos = position;
+// las orejas se mueven sobre la cabeza, luego la cabeza sobre el cuello
+rigApply(rigPos, objectNormal, uEarRotL, uEarPivotL, aRig.z);
+rigApply(rigPos, objectNormal, uEarRotR, uEarPivotR, aRig.w);
+rigApply(rigPos, objectNormal, uHeadRot, uHeadPivot, aRig.x);
+rigApply(rigPos, objectNormal, uTailRot, uTailPivot, aRig.y);
+// respiración: el pecho se infla un poco
+vec3 dc = position - uChest;
+float chest = exp(-dot(dc, dc) / uChestSize) * (1.0 - aRig.x);
+rigPos += vec3(dc.x, 0.3 * dc.y, dc.z) * chest * uBreath;`
+      )
+      .replace('#include <begin_vertex>', 'vec3 transformed = rigPos;');
+  };
+
+  return uniforms;
+}
+
 // ---------- Versión que camina ----------
 // La malla de Meshy es una sola superficie sentada (patas traseras fundidas con
 // el cuerpo), así que no se puede re-posar de pie sin deformarla. Para que
@@ -202,7 +212,7 @@ const HEAD_OFFSET = new THREE.Vector3(0, -0.08, -0.05);
 // Colores del pelaje sacados de la textura de la cabeza: claros, medios y
 // oscuros (sin contar ojos, nariz ni boca), para teñir el cuerpo procedural.
 // flipY: si la textura se carga volteada (OBJ/TextureLoader sí, glTF no).
-function coatFromTexture(image, uvs, flipY = true) {
+export function coatFromTexture(image, uvs, flipY = true) {
   const size = 128;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;

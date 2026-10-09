@@ -177,7 +177,7 @@ async function getDog(kind) {
   if (!dogs[kind]) {
     const meshy = { objUrl: 'models/shorkie-meshy.obj', textureUrl: 'models/shorkie-meshy.webp' };
     const tripo = { url: 'models/shorkie-tripo.glb' };
-    const createBody = (coat) => createShorkie({ quality, coat });
+    const createBody = (coat, options) => createShorkie({ quality, coat, ...options });
     if (kind === 'tripo') dogs[kind] = loadTripoShorkie(tripo);
     else if (kind === 'tripo-walk') dogs[kind] = loadTripoWalker({ ...tripo, createBody });
     else if (kind === 'meshy') dogs[kind] = loadMeshyShorkie(meshy);

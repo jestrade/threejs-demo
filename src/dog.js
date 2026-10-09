@@ -183,8 +183,9 @@ function makeLeg(x, z, front, ctx) {
 
   const upper = mesh(new THREE.CapsuleGeometry(0.052, 0.17, 4, 12), skinMaterial);
   upper.position.y = -0.11;
-  hip.add(upper);
-  addHair(hip, ctx, {
+  // sin pelaje propio (otro cuerpo encima) el muslo queda tapado por ese cuerpo
+  if (ctx.bodyHair) hip.add(upper);
+  if (ctx.bodyHair) addHair(hip, ctx, {
     center: [0, -0.09, 0],
     radii: [0.066, 0.14, 0.066],
     count: 2400,
@@ -243,20 +244,21 @@ function makeLeg(x, z, front, ctx) {
  * Crea el shorkie procedural.
  * coat: colores opcionales del pelaje ({ fur, furWarm, furTan }) para que
  * combine con otra cabeza (p. ej. la de Meshy).
+ * bodyHair: false deja solo patas, cola y cabeza (para poner otro cuerpo encima).
  */
-export function createShorkie({ seed = 7, quality = 1, coat = null } = {}) {
-  if (!coat) return buildShorkie(seed, quality);
+export function createShorkie({ seed = 7, quality = 1, coat = null, bodyHair = true } = {}) {
+  if (!coat) return buildShorkie(seed, quality, bodyHair);
   const saved = Object.fromEntries(Object.keys(coat).map((k) => [k, PALETTE[k].clone()]));
   Object.entries(coat).forEach(([k, c]) => PALETTE[k].copy(c));
   try {
-    return buildShorkie(seed, quality);
+    return buildShorkie(seed, quality, bodyHair);
   } finally {
     Object.entries(saved).forEach(([k, c]) => PALETTE[k].copy(c));
   }
 }
 
-function buildShorkie(seed, quality) {
-  const ctx = { rand: mulberry32(seed), quality, strands: 0 };
+function buildShorkie(seed, quality, bodyHair) {
+  const ctx = { rand: mulberry32(seed), quality, strands: 0, bodyHair };
   const group = new THREE.Group();
 
   // root: se mueve arriba/abajo con el paso
@@ -269,10 +271,10 @@ function buildShorkie(seed, quality) {
   // pecho más ancho y profundo que la cadera
   const chest = ellipsoid(0.185, 0.185, 0.2, skinMaterial);
   chest.position.set(0, 0.01, 0.15);
-  root.add(chest);
+  if (bodyHair) root.add(chest);
   const hips = ellipsoid(0.17, 0.17, 0.2, skinMaterial);
   hips.position.set(0, 0.02, -0.16);
-  root.add(hips);
+  if (bodyHair) root.add(hips);
 
   const coat = {
     length: 0.17,
@@ -284,7 +286,7 @@ function buildShorkie(seed, quality) {
     // Más largo hacia abajo: la "falda" típica del Yorkie/Shih Tzu
     lengthFn: (h) => 0.75 + (1 - h.y) * 0.5,
   };
-  addHair(root, ctx, {
+  if (bodyHair) addHair(root, ctx, {
     ...coat,
     center: [0, 0.015, 0],
     radii: [0.2, 0.21, 0.39],
@@ -307,8 +309,8 @@ function buildShorkie(seed, quality) {
   const neck = ellipsoid(0.13, 0.15, 0.13, skinMaterial);
   neck.position.set(0, 0.13, 0.28);
   neck.rotation.x = -0.5;
-  root.add(neck);
-  addHair(root, ctx, {
+  if (bodyHair) root.add(neck);
+  if (bodyHair) addHair(root, ctx, {
     center: [0, 0.13, 0.28],
     radii: [0.13, 0.15, 0.13],
     count: 5000,
@@ -590,5 +592,5 @@ function buildShorkie(seed, quality) {
     barkTime = 0.35;
   }
 
-  return { group, head, update, bark, strands: ctx.strands, canWalk: true };
+  return { group, head, tail: tailWag, update, bark, strands: ctx.strands, canWalk: true };
 }
