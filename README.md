@@ -136,6 +136,7 @@ src/meshyDog.js Meshy model: sitting (animated by regions) and walking hybrid (M
 src/dog.js      procedural shorkie (body, head, ears, legs, tail) and walk animation
 src/hair.js     hair lock generator and hair material
 models/         Tripo model (GLB) and Meshy model (OBJ + texture)
+sounds/         bark.mp3: the real dog's bark, recorded by the owner (falls back to a synthesized bark)
 tools/          scripts used to prepare the Meshy (tools/*.py) and Tripo (tools/tripo/) models
 ```
 

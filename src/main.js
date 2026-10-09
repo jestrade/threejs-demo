@@ -238,29 +238,67 @@ setDog(ui.model.value);
 
 let bubbleTimer = 0;
 let audioCtx = null;
+let barkTimers = [];
+
+// Ladrido real (grabado del perro): tres ladridos; la boca/cabeza se mueve en cada uno
+const BARK_URL = 'sounds/bark.mp3';
+const BARK_ONSETS = [0.02, 0.34, 0.71]; // segundos dentro del audio
+let barkBuffer = null;
+async function loadBark() {
+  barkBuffer ??= fetch(BARK_URL)
+    .then((r) => r.arrayBuffer())
+    .then((data) => audioCtx.decodeAudioData(data))
+    .catch(() => null);
+  return barkBuffer;
+}
+
 function bark() {
   if (!dog) return;
-  dog.bark();
-  bubbleTimer = 0.9;
-  ui.bubble.classList.add('show');
   try {
     audioCtx ??= new AudioContext();
-    const t = audioCtx.currentTime;
-    for (const [delay, f] of [[0, 520], [0.16, 600]]) {
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(f, t + delay);
-      osc.frequency.exponentialRampToValueAtTime(f * 0.55, t + delay + 0.11);
-      gain.gain.setValueAtTime(0.0001, t + delay);
-      gain.gain.exponentialRampToValueAtTime(0.25, t + delay + 0.015);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t + delay + 0.12);
-      osc.connect(gain).connect(audioCtx.destination);
-      osc.start(t + delay);
-      osc.stop(t + delay + 0.13);
-    }
+    audioCtx.resume();
   } catch {
-    // Sin audio: no pasa nada
+    audioCtx = null;
+  }
+  const play = async () => {
+    const buffer = audioCtx && (await loadBark());
+    barkTimers.forEach(clearTimeout);
+    if (!buffer) {
+      if (audioCtx) synthBark();
+      dog.bark();
+      showBubble(0.9);
+      return;
+    }
+    const source = audioCtx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(audioCtx.destination);
+    source.start();
+    barkTimers = BARK_ONSETS.map((t) => setTimeout(() => dog?.bark(), t * 1000));
+    showBubble(buffer.duration + 0.1);
+  };
+  play();
+}
+
+function showBubble(seconds) {
+  bubbleTimer = seconds;
+  ui.bubble.classList.add('show');
+}
+
+// Respaldo si el audio no se puede cargar: ladrido sintetizado
+function synthBark() {
+  const t = audioCtx.currentTime;
+  for (const [delay, f] of [[0, 520], [0.16, 600]]) {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(f, t + delay);
+    osc.frequency.exponentialRampToValueAtTime(f * 0.55, t + delay + 0.11);
+    gain.gain.setValueAtTime(0.0001, t + delay);
+    gain.gain.exponentialRampToValueAtTime(0.25, t + delay + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + delay + 0.12);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(t + delay);
+    osc.stop(t + delay + 0.13);
   }
 }
 
