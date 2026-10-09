@@ -73,6 +73,7 @@ export async function loadTripoShorkie({ url }) {
       ];
     },
     jawPivot: JAW_PIVOT,
+    headMotion: false, // girar la cabeza deforma el cuello del escaneo: se ve raro
   });
 }
 
@@ -207,7 +208,8 @@ export async function loadTripoWalker({ url, createBody }) {
   // sin cola procedural: no combinaba con el pelaje de Tripo (la de Tripo quedó bajo el corte)
   dog.tail.removeFromParent();
 
-  // la cabeza de Tripo copia la rotación de la cabeza procedural
+  // la cabeza de Tripo queda quieta (girarla deforma el cuello y se ve raro);
+  // solo se mueven la boca y las orejas
   const m4 = new THREE.Matrix4();
   const euler = new THREE.Euler(0, 0, 0, 'YXZ');
   const setRotation = (target, x, y, z) => target.setFromMatrix4(m4.makeRotationFromEuler(euler.set(x, y, z)));
@@ -218,7 +220,6 @@ export async function loadTripoWalker({ url, createBody }) {
   };
   const update = (dt, speed, time) => {
     dog.update(dt, speed, time);
-    uniforms.uHeadRot.value.setFromMatrix4(m4.makeRotationFromEuler(head.rotation));
     // la boca se abre con cada ladrido
     barkTime = Math.max(0, barkTime - dt);
     const open = barkTime > 0 ? Math.sin((1 - barkTime / 0.35) * Math.PI) : 0;

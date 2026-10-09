@@ -116,7 +116,8 @@ export function rigSittingDog(geometry, material, rig) {
       open = Math.sin((1 - barkTime / 0.35) * Math.PI);
       pitch -= open * 0.22;
     }
-    setRot(uniforms.uHeadRot.value, pitch, lookYaw, lookTilt);
+    // rig.headMotion = false: la cabeza queda quieta (solo boca y orejas)
+    if (rig.headMotion !== false) setRot(uniforms.uHeadRot.value, pitch, lookYaw, lookTilt);
     // la boca se abre con cada ladrido (si el modelo tiene mandíbula)
     setRot(uniforms.uJawRot.value, open * 0.5, 0, 0);
 
