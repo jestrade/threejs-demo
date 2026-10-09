@@ -112,6 +112,15 @@ Then open `http://localhost:8000`.
 On slower machines add `?quality=0.5` (or lower) to the URL to generate fewer locks.
 Touch devices use `0.5` by default.
 
+### Deploy to S3
+
+`.github/workflows/deploy.yml` publishes the site to the `threejs-dog` S3 bucket (us-east-1) on every
+push to `main` (or manually from the Actions tab). It uses the `prod` environment secrets
+`AWS_ACCESS_KEY` and `AWS_SECRET_KEY`, uploads only what the page needs (`index.html`, `style.css`,
+`src/`, `models/`, `sounds/`), removes files that no longer exist, and serves `index.html` without
+cache. If a CloudFront distribution is added, set the `CLOUDFRONT_DISTRIBUTION_ID` variable to
+invalidate it after each deploy.
+
 ### GitHub Pages
 
 In **Settings → Pages**, choose *Deploy from a branch* → `main` / `(root)`.

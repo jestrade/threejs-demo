@@ -1,0 +1,54 @@
+name: Deploy to S3
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# un deploy a la vez; si llega otro push, el anterior se cancela
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  S3_BUCKET: threejs-dog
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preparar el sitio (solo lo que usa la página)
+        run: |
+          mkdir site
+          cp -r index.html style.css src models sounds site/
+          find site -type f | sort
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Subir a S3
+        run: |
+          # todo el sitio, borrando lo que ya no existe en el repo
+          aws s3 sync site/ "s3://$S3_BUCKET/" --delete --cache-control "public, max-age=3600"
+          # tipos correctos para el modelo y el ladrido
+          aws s3 cp site/models/ "s3://$S3_BUCKET/models/" --recursive --exclude "*" --include "*.glb" \
+            --content-type model/gltf-binary --cache-control "public, max-age=3600"
+          aws s3 cp site/sounds/ "s3://$S3_BUCKET/sounds/" --recursive --exclude "*" --include "*.mp3" \
+            --content-type audio/mpeg --cache-control "public, max-age=3600"
+          # la página sin caché para que los cambios se vean enseguida
+          aws s3 cp site/index.html "s3://$S3_BUCKET/index.html" \
+            --content-type "text/html; charset=utf-8" --cache-control "no-cache"
+
+      - name: Invalidar CloudFront (si hay distribución configurada)
+        if: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID != '' }}
+        run: aws cloudfront create-invalidation --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" --paths "/*"
