@@ -1,11 +1,13 @@
 name: Deploy to S3
 
+# Manual only for now: run it from the Actions tab ("Run workflow").
+# To deploy on every push to main again, add:
+#   push:
+#     branches: [main]
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
-# un deploy a la vez; si llega otro push, el anterior se cancela
+# One deploy at a time; a newer run cancels the one in progress
 concurrency:
   group: deploy-prod
   cancel-in-progress: true
@@ -24,7 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Preparar el sitio (solo lo que usa la página)
+      - name: Prepare the site (only what the page uses)
         run: |
           mkdir site
           cp -r index.html style.css src models sounds site/
@@ -36,19 +38,19 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Subir a S3
+      - name: Upload to S3
         run: |
-          # todo el sitio, borrando lo que ya no existe en el repo
+          # Whole site, deleting files that no longer exist in the repo
           aws s3 sync site/ "s3://$S3_BUCKET/" --delete --cache-control "public, max-age=3600"
-          # tipos correctos para el modelo y el ladrido
+          # Correct content types for the model and the bark sound
           aws s3 cp site/models/ "s3://$S3_BUCKET/models/" --recursive --exclude "*" --include "*.glb" \
             --content-type model/gltf-binary --cache-control "public, max-age=3600"
           aws s3 cp site/sounds/ "s3://$S3_BUCKET/sounds/" --recursive --exclude "*" --include "*.mp3" \
             --content-type audio/mpeg --cache-control "public, max-age=3600"
-          # la página sin caché para que los cambios se vean enseguida
+          # Serve the page without cache so changes show up right away
           aws s3 cp site/index.html "s3://$S3_BUCKET/index.html" \
             --content-type "text/html; charset=utf-8" --cache-control "no-cache"
 
-      - name: Invalidar CloudFront (si hay distribución configurada)
+      - name: Invalidate CloudFront (if a distribution is configured)
         if: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID != '' }}
         run: aws cloudfront create-invalidation --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" --paths "/*"
